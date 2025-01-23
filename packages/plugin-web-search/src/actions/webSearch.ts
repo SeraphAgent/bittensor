@@ -13,6 +13,16 @@ import type { SearchResult } from "../types";
 const DEFAULT_MAX_WEB_SEARCH_TOKENS = 4000;
 const DEFAULT_MODEL_ENCODING = "gpt-3.5-turbo";
 
+interface WebSearchMemory extends Memory {
+    content: {
+        text: string;
+        query: string;
+        results: SearchResult[];
+        answer?: string;
+        actionType: string;
+    };
+}
+
 function getTotalTokensFromString(
     str: string,
     encodingName: TiktokenModel = DEFAULT_MODEL_ENCODING
@@ -37,7 +47,7 @@ export const webSearch: Action = {
         "SEARCH_WEB",
         "INTERNET_SEARCH",
         "LOOKUP",
-        "QUERY_WEB",
+        "QUERY_WEB", 
         "FIND_ONLINE",
         "SEARCH_ENGINE",
         "WEB_LOOKUP",
@@ -87,6 +97,28 @@ export const webSearch: Action = {
                           : ""
                   }`
                 : "";
+
+            // Create memory of the web search
+            const searchMemory: WebSearchMemory = {
+                ...message,
+                content: {
+                    text: responseList,
+                    query: webSearchPrompt,
+                    results: searchResponse.results,
+                    answer: searchResponse.answer,
+                    actionType: "WEB_SEARCH"
+                },
+                createdAt: Date.now(),
+            };
+
+            elizaLogger.info("Saving web search memory:", {
+                roomId: message.roomId,
+                searchMemory
+            });
+
+            await runtime.messageManager.createMemory(searchMemory);
+            
+            elizaLogger.info("Web search memory saved");
 
             callback({
                 text: MaxTokens(responseList, DEFAULT_MAX_WEB_SEARCH_TOKENS),
