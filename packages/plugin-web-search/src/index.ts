@@ -2,6 +2,8 @@ import { webSearch } from "./actions/webSearch";
 import type { Plugin } from "@elizaos/core";
 import { WebSearchService } from "./services/webSearchService";
 
+export { WebSearchService } from "./services/webSearchService";
+
 export const webSearchPlugin: Plugin = {
     name: "webSearch",
     description: "Search the web and get news",

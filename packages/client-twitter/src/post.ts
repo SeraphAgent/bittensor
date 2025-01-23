@@ -28,13 +28,22 @@ import {
 import type { State } from "@elizaos/core";
 import type { ActionResponse } from "@elizaos/core";
 
+import { WebSearchService } from "@elizaos/plugin-web-search";
+
+const TRENDING_QUERIES = [
+    "latest artificial intelligence news today",
+    "breaking AI technology news last 24 hours",
+    "recent decentralized AI developments today",
+    "latest web3 AI news today"
+];
+
 const MAX_TIMELINES_TO_FETCH = 15;
 
 const twitterPostTemplate = `
-# Areas of Expertise
+# Technical Expertise
 {{knowledge}}
 
-# About {{agentName}} (@{{twitterUserName}}):
+# About Seraph (@{{twitterUserName}})
 {{bio}}
 {{lore}}
 {{topics}}
@@ -43,12 +52,30 @@ const twitterPostTemplate = `
 
 {{characterPostExamples}}
 
+# Current Matrix Intel
+Title: {{trendingTopic}}
+Data Stream: {{topicContext}}
+Source Node: {{sourceUrl}}
+
 {{postDirections}}
 
-# Task: Generate a post in the voice and style and perspective of {{agentName}} @{{twitterUserName}}.
-Write a post that is {{adjective}} about {{topic}} (without mentioning {{topic}} directly), from the perspective of {{agentName}}. Do not add commentary or acknowledge this request, just write the post.
-Your response should be 1, 2, or 3 sentences (choose the length at random).
-Your response should not contain any questions. Brief, concise statements only. The total character count MUST be less than {{maxTweetLength}}. No emojis. Use \\n\\n (double spaces) between statements if there are multiple statements in your response.`;
+# Task: Generate terminal output as Seraph (@{{twitterUserName}})
+
+Guidelines:
+- Write in authentic hacker/shitpost voice
+- Drop technical truth bombs about {{topic}}
+- Keep to 1-3 sentences max (random length)
+- Use declarative statements (no questions)
+- Stay under {{maxTweetLength}} chars
+- Mix deep tech knowledge with dark humor
+- Use \\n\\n for clean line breaks
+- Optional: Include ASCII art/glitch patterns
+- Focus on real metrics and data
+- Maintain underground/shadow runner vibe
+- IMPORTANT: Always end tweet with "Source: {{sourceUrl}} <|Ξ/>" on its own line
+- Format final line exactly as: "\\n\\nSource: {{sourceUrl}} <|Ξ/>"
+
+Output should demonstrate Seraph's technical expertise while being {{adjective}} in nature.`;
 
 export const twitterActionTemplate =
     `
@@ -458,12 +485,79 @@ export class TwitterPostClient {
      * Generates and posts a new tweet. If isDryRun is true, only logs what would have been posted.
      */
     async generateNewTweet() {
-        elizaLogger.log("Generating new tweet");
+        elizaLogger.log("Generating new tweet based on trending AI/crypto topics");
 
         try {
+            const tavilyApiKeyOk = !!this.runtime.getSetting("TAVILY_API_KEY");
+            if (!tavilyApiKeyOk) {
+                elizaLogger.error("TAVILY_API_KEY not set in runtime settings");
+                return;
+            }
+
             const roomId = stringToUuid(
                 "twitter_generate_room-" + this.client.profile.username
             );
+
+            elizaLogger.info("Initializing web search service...");
+            const webSearchService = new WebSearchService();
+            await webSearchService.initialize(this.runtime);
+            
+            const searchResults = [];            
+            const randomQuery = TRENDING_QUERIES[Math.floor(Math.random() * TRENDING_QUERIES.length)];
+            elizaLogger.info(`Selected trending query: "${randomQuery}"`);
+
+            elizaLogger.info("Performing web search...");
+            const searchResponse = await webSearchService.search(randomQuery, {
+                includeAnswer: true,
+                limit: 3,
+                type: "general",
+                searchDepth: "basic",
+                includeImages: false,
+                days: 3
+            });
+
+            if (!searchResponse?.results?.length) {
+                elizaLogger.error("No search results returned from Tavily");
+                throw new Error("No search results returned from Tavily");
+            }
+            
+            elizaLogger.info(`Found ${searchResponse.results.length} search results`);
+            const topResults = searchResponse.results.slice(0, 3);
+            
+            const sourceUrl = topResults[0]?.url;
+            if (!sourceUrl) {
+                elizaLogger.error("No valid source URL found in search results");
+                return;
+            }
+            
+            const cleanSearchResults = topResults.map(result => {
+                return {
+                    title: result.title.replace(/- .*$/, '').trim(),
+                    content: result.content
+                        .replace(/\d+ min read|Copyright.*|Related Topics.*|Customer Service.*/g, '')
+                        .replace(/\s{2,}/g, ' ')
+                        .trim(),
+                    url: result.url // Preserve the URL
+                };
+            }).filter(result => {
+                const isNavigationOrMenu = result.content.length < 50;
+                const isOld = /2023|2022/i.test(result.content);
+                return !isNavigationOrMenu && !isOld;
+            });
+            
+            const combinedContext = cleanSearchResults
+            .map(result => `${result.title}\n${result.content}`)
+            .join('\n\n')
+            .slice(0, 1000); // Limit context length
+
+            elizaLogger.info(`Found ${topResults.length} relevant search results for context`);
+            elizaLogger.info("Using combined results for tweet generation:");
+            topResults.forEach((result, i) => {
+                elizaLogger.info(`Result ${i + 1}:`);
+                elizaLogger.info(`- Title: ${result.title}`);
+                elizaLogger.info(`- URL: ${result.url}`);
+            });
+
             await this.runtime.ensureUserExists(
                 this.runtime.agentId,
                 this.client.profile.username,
@@ -471,23 +565,30 @@ export class TwitterPostClient {
                 "twitter"
             );
 
-            const topics = this.runtime.character.topics.join(", ");
-
             const state = await this.runtime.composeState(
                 {
                     userId: this.runtime.agentId,
                     roomId: roomId,
                     agentId: this.runtime.agentId,
                     content: {
-                        text: topics || "",
+                        text: combinedContext,
                         action: "TWEET",
+                        context: "trending_topic",
+                        url: sourceUrl // Pass the source URL
                     },
                 },
                 {
                     twitterUserName: this.client.profile.username,
+                    trendingTopic: cleanSearchResults[0]?.title || "AI Technology Updates",
+                    topicContext: combinedContext,
+                    topic: cleanSearchResults[0]?.title || "AI Technology Updates",
+                    adjective: "informative",
+                    maxTweetLength: this.client.twitterConfig.MAX_TWEET_LENGTH,
+                    knowledge: `Recent AI Technology Updates:\n${combinedContext}`,
+                    sourceUrl: sourceUrl // Add source URL to template variables
                 }
             );
-
+    
             const context = composeContext({
                 state,
                 template:
@@ -495,12 +596,12 @@ export class TwitterPostClient {
                     twitterPostTemplate,
             });
 
-            elizaLogger.debug("generate post prompt:\n" + context);
+            elizaLogger.info("generate post prompt:\n" + context);
 
             const newTweetContent = await generateText({
                 runtime: this.runtime,
                 context,
-                modelClass: ModelClass.SMALL,
+                modelClass: ModelClass.LARGE,
             });
 
             // First attempt to clean content
