@@ -273,25 +273,24 @@ export const analysisHistory: Action = {
                 return acc;
             }, { total: 0, aiCount: 0, avgConfidence: 0 });
 
-            const reportText = `🔍 Trinity Matrix Analysis Report
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            const reportText = `🔍 Seraph Image Detection Report
+━━━━━━━━━━━━━━━━━━━
 
-📊 Recent Analyses (${imageAnalyses.length})
+📊 Recent (${imageAnalyses.length})
 ${formatAnalysisHistory(imageAnalyses)}
 
-📈 Statistical Overview
-┌─────────────────────────────────┐
-│ 🔍 Total Analyzed : ${statistics.total.toString().padEnd(12)} │
-│ 🤖 AI Generated  : ${statistics.aiCount.toString().padEnd(12)} │
-│ 📸 Natural       : ${(statistics.total - statistics.aiCount).toString().padEnd(12)} │
-│ ⚡ AI Detection Rate: ${((statistics.aiCount / statistics.total) * 100).toFixed(1)}%      │
-└─────────────────────────────────┘
+📈 Stats
+┌───────────────────────────┐
+│ Total: ${statistics.total.toString().padEnd(8)} │
+│ AI:   ${statistics.aiCount.toString().padEnd(8)} │
+│ Real: ${(statistics.total - statistics.aiCount).toString().padEnd(8)} │
+│ AI %: ${((statistics.aiCount / statistics.total) * 100).toFixed(1)}%    │
+└───────────────────────────┘
 
-🎯 Confidence Metrics
-Average Confidence: ${((statistics.avgConfidence / statistics.total) * 100).toFixed(1)}%
+🎯 Avg Confidence: ${((statistics.avgConfidence / statistics.total) * 100).toFixed(1)}%
 ${generateConfidenceBar(statistics.avgConfidence / statistics.total)}
 
-Powered by BitMind Subnet (SN34) on Bittensor`;
+Via BitMind SN34 on Bittensor`;
 
             callback({ text: reportText });
 
