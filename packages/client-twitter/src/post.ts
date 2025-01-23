@@ -39,7 +39,7 @@ const TRENDING_QUERIES = [
 
 const MAX_TIMELINES_TO_FETCH = 15;
 
-const twitterPostTemplate = `
+const webSearchTwitterPostTemplate = `
 # Technical Expertise
 {{knowledge}}
 
@@ -75,6 +75,27 @@ Guidelines:
 - Format final line exactly as: "\\n\\nSource: {{sourceUrl}} <|Ξ/>"
 
 Output should demonstrate Seraph's technical expertise while being {{adjective}} in nature.`;
+
+const genericTwitterPostTemplate = `
+# Areas of Expertise
+{{knowledge}}
+
+# About {{agentName}} (@{{twitterUserName}}):
+{{bio}}
+{{lore}}
+{{topics}}
+
+{{providers}}
+
+{{characterPostExamples}}
+
+{{postDirections}}
+
+# Task: Generate a post in the voice and style and perspective of {{agentName}} @{{twitterUserName}}.
+Write a post that is {{adjective}} about {{topic}} (without mentioning {{topic}} directly), from the perspective of {{agentName}}. Do not add commentary or acknowledge this request, just write the post.
+Your response should be 1, 2, or 3 sentences (choose the length at random).
+Your response should not contain any questions. Brief, concise statements only. The total character count MUST be less than {{maxTweetLength}}. No emojis. Use \\n\\n (double spaces) between statements if there are multiple statements in your response.`;
+
 
 export const twitterActionTemplate =
     `
@@ -484,207 +505,333 @@ export class TwitterPostClient {
      * Generates and posts a new tweet. If isDryRun is true, only logs what would have been posted.
      */
     async generateNewTweet() {
-        elizaLogger.log("Generating new tweet based on trending AI/crypto topics");
+        const useWebSearch = Math.random() < 0.5;
+
+        elizaLogger.info(`Generating new tweet ${useWebSearch ? 'based on web search' : 'from character knowledge'}`);
 
         try {
-            const tavilyApiKeyOk = !!this.runtime.getSetting("TAVILY_API_KEY");
-            if (!tavilyApiKeyOk) {
-                elizaLogger.error("TAVILY_API_KEY not set in runtime settings");
-                return;
-            }
-
-            const roomId = stringToUuid(
-                "twitter_generate_room-" + this.client.profile.username
-            );
-
-            elizaLogger.info("Initializing web search service...");
-            const webSearchService = new WebSearchService();
-            await webSearchService.initialize(this.runtime);
-            
-            const searchResults = [];            
-            const randomQuery = TRENDING_QUERIES[Math.floor(Math.random() * TRENDING_QUERIES.length)];
-            elizaLogger.info(`Selected trending query: "${randomQuery}"`);
-
-            elizaLogger.info("Performing web search...");
-            const searchResponse = await webSearchService.search(randomQuery, {
-                includeAnswer: true,
-                limit: 3,
-                type: "general",
-                searchDepth: "basic",
-                includeImages: false,
-                days: 3
-            });
-
-            if (!searchResponse?.results?.length) {
-                elizaLogger.error("No search results returned from Tavily");
-                throw new Error("No search results returned from Tavily");
-            }
-            
-            elizaLogger.info(`Found ${searchResponse.results.length} search results`);
-            const topResults = searchResponse.results.slice(0, 3);
-            
-            const sourceUrl = topResults[0]?.url;
-            if (!sourceUrl) {
-                elizaLogger.error("No valid source URL found in search results");
-                return;
-            }
-            
-            const cleanSearchResults = topResults.map(result => {
-                return {
-                    title: result.title.replace(/- .*$/, '').trim(),
-                    content: result.content
-                        .replace(/\d+ min read|Copyright.*|Related Topics.*|Customer Service.*/g, '')
-                        .replace(/\s{2,}/g, ' ')
-                        .trim(),
-                    url: result.url // Preserve the URL
-                };
-            }).filter(result => {
-                const isNavigationOrMenu = result.content.length < 50;
-                const isOld = /2023|2022/i.test(result.content);
-                return !isNavigationOrMenu && !isOld;
-            });
-            
-            const combinedContext = cleanSearchResults
-            .map(result => `${result.title}\n${result.content}`)
-            .join('\n\n')
-            .slice(0, 1000); // Limit context length
-
-            elizaLogger.info(`Found ${topResults.length} relevant search results for context`);
-            elizaLogger.info("Using combined results for tweet generation:");
-            topResults.forEach((result, i) => {
-                elizaLogger.info(`Result ${i + 1}:`);
-                elizaLogger.info(`- Title: ${result.title}`);
-                elizaLogger.info(`- URL: ${result.url}`);
-            });
-
-            await this.runtime.ensureUserExists(
-                this.runtime.agentId,
-                this.client.profile.username,
-                this.runtime.character.name,
-                "twitter"
-            );
-
-            const state = await this.runtime.composeState(
-                {
-                    userId: this.runtime.agentId,
-                    roomId: roomId,
-                    agentId: this.runtime.agentId,
-                    content: {
-                        text: combinedContext,
-                        action: "TWEET",
-                        context: "trending_topic",
-                        url: sourceUrl // Pass the source URL
-                    },
-                },
-                {
-                    twitterUserName: this.client.profile.username,
-                    trendingTopic: cleanSearchResults[0]?.title || "AI Technology Updates",
-                    topicContext: combinedContext,
-                    topic: cleanSearchResults[0]?.title || "AI Technology Updates",
-                    adjective: "informative",
-                    maxTweetLength: this.client.twitterConfig.MAX_TWEET_LENGTH,
-                    knowledge: `Recent AI Technology Updates:\n${combinedContext}`,
-                    sourceUrl: sourceUrl // Add source URL to template variables
+            if (useWebSearch){
+                const tavilyApiKeyOk = !!this.runtime.getSetting("TAVILY_API_KEY");
+                if (!tavilyApiKeyOk) {
+                    elizaLogger.error("TAVILY_API_KEY not set in runtime settings");
+                    return;
                 }
-            );
-    
-            const context = composeContext({
-                state,
-                template:
-                    this.runtime.character.templates?.twitterPostTemplate ||
-                    twitterPostTemplate,
-            });
 
-            elizaLogger.info("generate post prompt:\n" + context);
+                const roomId = stringToUuid(
+                    "twitter_generate_room-" + this.client.profile.username
+                );
 
-            const newTweetContent = await generateText({
-                runtime: this.runtime,
-                context,
-                modelClass: ModelClass.LARGE,
-            });
+                elizaLogger.info("Initializing web search service...");
+                const webSearchService = new WebSearchService();
+                await webSearchService.initialize(this.runtime);
+                
+                const searchResults = [];            
+                const randomQuery = TRENDING_QUERIES[Math.floor(Math.random() * TRENDING_QUERIES.length)];
+                elizaLogger.info(`Selected trending query: "${randomQuery}"`);
 
-            // First attempt to clean content
-            let cleanedContent = "";
+                elizaLogger.info("Performing web search...");
+                const searchResponse = await webSearchService.search(randomQuery, {
+                    includeAnswer: true,
+                    limit: 3,
+                    type: "general",
+                    searchDepth: "basic",
+                    includeImages: false,
+                    days: 3
+                });
 
-            // Try parsing as JSON first
-            try {
-                const parsedResponse = JSON.parse(newTweetContent);
-                if (parsedResponse.text) {
-                    cleanedContent = parsedResponse.text;
-                } else if (typeof parsedResponse === "string") {
-                    cleanedContent = parsedResponse;
+                if (!searchResponse?.results?.length) {
+                    elizaLogger.error("No search results returned from Tavily");
+                    throw new Error("No search results returned from Tavily");
                 }
-            } catch (error) {
-                error.linted = true; // make linter happy since catch needs a variable
-                // If not JSON, clean the raw content
-                cleanedContent = newTweetContent
-                    .replace(/^\s*{?\s*"text":\s*"|"\s*}?\s*$/g, "") // Remove JSON-like wrapper
-                    .replace(/^['"](.*)['"]$/g, "$1") // Remove quotes
-                    .replace(/\\"/g, '"') // Unescape quotes
-                    .replace(/\\n/g, "\n\n") // Unescape newlines, ensures double spaces
-                    .trim();
-            }
+                
+                elizaLogger.info(`Found ${searchResponse.results.length} search results`);
+                const topResults = searchResponse.results.slice(0, 3);
+                
+                const sourceUrl = topResults[0]?.url;
+                if (!sourceUrl) {
+                    elizaLogger.error("No valid source URL found in search results");
+                    return;
+                }
+                
+                const cleanSearchResults = topResults.map(result => {
+                    return {
+                        title: result.title.replace(/- .*$/, '').trim(),
+                        content: result.content
+                            .replace(/\d+ min read|Copyright.*|Related Topics.*|Customer Service.*/g, '')
+                            .replace(/\s{2,}/g, ' ')
+                            .trim(),
+                        url: result.url // Preserve the URL
+                    };
+                }).filter(result => {
+                    const isNavigationOrMenu = result.content.length < 50;
+                    const isOld = /2023|2022/i.test(result.content);
+                    return !isNavigationOrMenu && !isOld;
+                });
+                
+                const combinedContext = cleanSearchResults
+                .map(result => `${result.title}\n${result.content}`)
+                .join('\n\n')
+                .slice(0, 1000); // Limit context length
 
-            if (!cleanedContent) {
-                elizaLogger.error(
-                    "Failed to extract valid content from response:",
+                elizaLogger.info(`Found ${topResults.length} relevant search results for context`);
+                elizaLogger.info("Using combined results for tweet generation:");
+                topResults.forEach((result, i) => {
+                    elizaLogger.info(`Result ${i + 1}:`);
+                    elizaLogger.info(`- Title: ${result.title}`);
+                    elizaLogger.info(`- URL: ${result.url}`);
+                });
+
+                await this.runtime.ensureUserExists(
+                    this.runtime.agentId,
+                    this.client.profile.username,
+                    this.runtime.character.name,
+                    "twitter"
+                );
+
+                const state = await this.runtime.composeState(
                     {
-                        rawResponse: newTweetContent,
-                        attempted: "JSON parsing",
+                        userId: this.runtime.agentId,
+                        roomId: roomId,
+                        agentId: this.runtime.agentId,
+                        content: {
+                            text: combinedContext,
+                            action: "TWEET",
+                            context: "trending_topic",
+                            url: sourceUrl // Pass the source URL
+                        },
+                    },
+                    {
+                        twitterUserName: this.client.profile.username,
+                        trendingTopic: cleanSearchResults[0]?.title || "AI Technology Updates",
+                        topicContext: combinedContext,
+                        topic: cleanSearchResults[0]?.title || "AI Technology Updates",
+                        adjective: "informative",
+                        maxTweetLength: this.client.twitterConfig.MAX_TWEET_LENGTH,
+                        knowledge: `Recent AI Technology Updates:\n${combinedContext}`,
+                        sourceUrl: sourceUrl // Add source URL to template variables
                     }
                 );
-                return;
-            }
+        
+                const context = composeContext({
+                    state,
+                    template:
+                        this.runtime.character.templates?.twitterPostTemplate ||
+                        webSearchTwitterPostTemplate,
+                });
 
-            // Truncate the content to the maximum tweet length specified in the environment settings, ensuring the truncation respects sentence boundaries.
-            const maxTweetLength = this.client.twitterConfig.MAX_TWEET_LENGTH;
-            if (maxTweetLength) {
-                cleanedContent = truncateToCompleteSentence(
-                    cleanedContent,
-                    maxTweetLength
-                );
-            }
+                const newTweetContent = await generateText({
+                    runtime: this.runtime,
+                    context,
+                    modelClass: ModelClass.LARGE,
+                });
 
-            const removeQuotes = (str: string) =>
-                str.replace(/^['"](.*)['"]$/, "$1");
+                // First attempt to clean content
+                let cleanedContent = "";
 
-            const fixNewLines = (str: string) => str.replaceAll(/\\n/g, "\n\n"); //ensures double spaces
+                // Try parsing as JSON first
+                try {
+                    const parsedResponse = JSON.parse(newTweetContent);
+                    if (parsedResponse.text) {
+                        cleanedContent = parsedResponse.text;
+                    } else if (typeof parsedResponse === "string") {
+                        cleanedContent = parsedResponse;
+                    }
+                } catch (error) {
+                    error.linted = true; // make linter happy since catch needs a variable
+                    // If not JSON, clean the raw content
+                    cleanedContent = newTweetContent
+                        .replace(/^\s*{?\s*"text":\s*"|"\s*}?\s*$/g, "") // Remove JSON-like wrapper
+                        .replace(/^['"](.*)['"]$/g, "$1") // Remove quotes
+                        .replace(/\\"/g, '"') // Unescape quotes
+                        .replace(/\\n/g, "\n\n") // Unescape newlines, ensures double spaces
+                        .trim();
+                }
 
-            // Final cleaning
-            cleanedContent = removeQuotes(fixNewLines(cleanedContent));
-
-            if (this.isDryRun) {
-                elizaLogger.info(
-                    `Dry run: would have posted tweet: ${cleanedContent}`
-                );
-                return;
-            }
-
-            try {
-                if (this.approvalRequired) {
-                    // Send for approval instead of posting directly
-                    elizaLogger.log(
-                        `Sending Tweet For Approval:\n ${cleanedContent}`
+                if (!cleanedContent) {
+                    elizaLogger.error(
+                        "Failed to extract valid content from response:",
+                        {
+                            rawResponse: newTweetContent,
+                            attempted: "JSON parsing",
+                        }
                     );
-                    await this.sendForApproval(
+                    return;
+                }
+
+                // Truncate the content to the maximum tweet length specified in the environment settings, ensuring the truncation respects sentence boundaries.
+                const maxTweetLength = this.client.twitterConfig.MAX_TWEET_LENGTH;
+                if (maxTweetLength) {
+                    cleanedContent = truncateToCompleteSentence(
                         cleanedContent,
-                        roomId,
-                        newTweetContent
-                    );
-                    elizaLogger.log("Tweet sent for approval");
-                } else {
-                    elizaLogger.log(`Posting new tweet:\n ${cleanedContent}`);
-                    this.postTweet(
-                        this.runtime,
-                        this.client,
-                        cleanedContent,
-                        roomId,
-                        newTweetContent,
-                        this.twitterUsername
+                        maxTweetLength
                     );
                 }
-            } catch (error) {
-                elizaLogger.error("Error sending tweet:", error);
+
+                const removeQuotes = (str: string) =>
+                    str.replace(/^['"](.*)['"]$/, "$1");
+
+                const fixNewLines = (str: string) => str.replaceAll(/\\n/g, "\n\n"); //ensures double spaces
+
+                // Final cleaning
+                cleanedContent = removeQuotes(fixNewLines(cleanedContent));
+
+                if (this.isDryRun) {
+                    elizaLogger.info(
+                        `Dry run: would have posted tweet: ${cleanedContent}`
+                    );
+                    return;
+                }
+
+                try {
+                    if (this.approvalRequired) {
+                        // Send for approval instead of posting directly
+                        elizaLogger.log(
+                            `Sending Tweet For Approval:\n ${cleanedContent}`
+                        );
+                        await this.sendForApproval(
+                            cleanedContent,
+                            roomId,
+                            newTweetContent
+                        );
+                        elizaLogger.log("Tweet sent for approval");
+                    } else {
+                        elizaLogger.log(`Posting new tweet:\n ${cleanedContent}`);
+                        this.postTweet(
+                            this.runtime,
+                            this.client,
+                            cleanedContent,
+                            roomId,
+                            newTweetContent,
+                            this.twitterUsername
+                        );
+                    }
+                } catch (error) {
+                    elizaLogger.error("Error sending tweet:", error);
+                }
+            } else {
+                const roomId = stringToUuid(
+                    "twitter_generate_room-" + this.client.profile.username
+                );
+                await this.runtime.ensureUserExists(
+                    this.runtime.agentId,
+                    this.client.profile.username,
+                    this.runtime.character.name,
+                    "twitter"
+                );
+    
+                const topics = this.runtime.character.topics.join(", ");
+    
+                const state = await this.runtime.composeState(
+                    {
+                        userId: this.runtime.agentId,
+                        roomId: roomId,
+                        agentId: this.runtime.agentId,
+                        content: {
+                            text: topics || "",
+                            action: "TWEET",
+                        },
+                    },
+                    {
+                        twitterUserName: this.client.profile.username,
+                    }
+                );
+    
+                const context = composeContext({
+                    state,
+                    template:
+                        this.runtime.character.templates?.twitterPostTemplate ||
+                        genericTwitterPostTemplate,
+                });
+    
+                const newTweetContent = await generateText({
+                    runtime: this.runtime,
+                    context,
+                    modelClass: ModelClass.LARGE,
+                });
+
+                // First attempt to clean content
+                let cleanedContent = "";
+
+                // Try parsing as JSON first
+                try {
+                    const parsedResponse = JSON.parse(newTweetContent);
+                    if (parsedResponse.text) {
+                        cleanedContent = parsedResponse.text;
+                    } else if (typeof parsedResponse === "string") {
+                        cleanedContent = parsedResponse;
+                    }
+                } catch (error) {
+                    error.linted = true; // make linter happy since catch needs a variable
+                    // If not JSON, clean the raw content
+                    cleanedContent = newTweetContent
+                        .replace(/^\s*{?\s*"text":\s*"|"\s*}?\s*$/g, "") // Remove JSON-like wrapper
+                        .replace(/^['"](.*)['"]$/g, "$1") // Remove quotes
+                        .replace(/\\"/g, '"') // Unescape quotes
+                        .replace(/\\n/g, "\n\n") // Unescape newlines, ensures double spaces
+                        .trim();
+                }
+
+                if (!cleanedContent) {
+                    elizaLogger.error(
+                        "Failed to extract valid content from response:",
+                        {
+                            rawResponse: newTweetContent,
+                            attempted: "JSON parsing",
+                        }
+                    );
+                    return;
+                }
+
+                // Truncate the content to the maximum tweet length
+                const maxTweetLength = this.client.twitterConfig.MAX_TWEET_LENGTH;
+                if (maxTweetLength) {
+                    cleanedContent = truncateToCompleteSentence(
+                        cleanedContent,
+                        maxTweetLength
+                    );
+                }
+
+                const removeQuotes = (str: string) =>
+                    str.replace(/^['"](.*)['"]$/, "$1");
+
+                const fixNewLines = (str: string) => str.replaceAll(/\\n/g, "\n\n");
+
+                // Final cleaning
+                cleanedContent = removeQuotes(fixNewLines(cleanedContent));
+
+                if (this.isDryRun) {
+                    elizaLogger.info(
+                        `Dry run: would have posted tweet: ${cleanedContent}`
+                    );
+                    return;
+                }
+
+                try {
+                    if (this.approvalRequired) {
+                        // Send for approval instead of posting directly
+                        elizaLogger.log(
+                            `Sending Tweet For Approval:\n ${cleanedContent}`
+                        );
+                        await this.sendForApproval(
+                            cleanedContent,
+                            roomId,
+                            newTweetContent
+                        );
+                        elizaLogger.log("Tweet sent for approval");
+                    } else {
+                        elizaLogger.log(`Posting new tweet:\n ${cleanedContent}`);
+                        this.postTweet(
+                            this.runtime,
+                            this.client,
+                            cleanedContent,
+                            roomId,
+                            newTweetContent,
+                            this.twitterUsername
+                        );
+                    }
+                } catch (error) {
+                    elizaLogger.error("Error sending tweet:", error);
+                }
             }
         } catch (error) {
             elizaLogger.error("Error generating new tweet:", error);
@@ -703,7 +850,7 @@ export class TwitterPostClient {
             template:
                 options?.template ||
                 this.runtime.character.templates?.twitterPostTemplate ||
-                twitterPostTemplate,
+                genericTwitterPostTemplate,
         });
 
         const response = await generateText({
@@ -834,7 +981,7 @@ export class TwitterPostClient {
                     const actionResponse = await generateTweetActions({
                         runtime: this.runtime,
                         context: actionContext,
-                        modelClass: ModelClass.SMALL,
+                        modelClass: ModelClass.LARGE,
                     });
 
                     if (!actionResponse) {
