@@ -83,7 +83,7 @@ import { normalizeCharacter } from "@elizaos/plugin-di";
 // import { nearPlugin } from "@elizaos/plugin-near";
 // import createNFTCollectionsPlugin from "@elizaos/plugin-nft-collections";
 // import { nftGenerationPlugin } from "@elizaos/plugin-nft-generation";
-// import { createNodePlugin } from "@elizaos/plugin-node";
+import { createNodePlugin } from "@elizaos/plugin-node";
 // import { obsidianPlugin } from "@elizaos/plugin-obsidian";
 // import { OpacityAdapter } from "@elizaos/plugin-opacity";
 // import { openWeatherPlugin } from "@elizaos/plugin-open-weather";
@@ -100,7 +100,7 @@ import { normalizeCharacter } from "@elizaos/plugin-di";
 // import { teeMarlinPlugin } from "@elizaos/plugin-tee-marlin";
 // import { verifiableLogPlugin } from "@elizaos/plugin-tee-verifiable-log";
 // import { tonPlugin } from "@elizaos/plugin-ton";
-// import { webSearchPlugin } from "@elizaos/plugin-web-search";
+import { webSearchPlugin } from "@elizaos/plugin-web-search";
 // import { injectivePlugin } from "@elizaos/plugin-injective";
 // import { giphyPlugin } from "@elizaos/plugin-giphy";
 // import { letzAIPlugin } from "@elizaos/plugin-letzai";
@@ -460,11 +460,18 @@ export async function loadCharacters(
 }
 
 async function handlePluginImporting(plugins: string[]) {
+    elizaLogger.info(`handlePluginImporting called with plugins: ${JSON.stringify(plugins)}`);
+    if (!plugins) {
+        elizaLogger.info('No plugins array provided');
+        return [];
+    }
+
     if (plugins.length > 0) {
         elizaLogger.info("Plugins are: ", plugins);
         const importedPlugins = await Promise.all(
             plugins.map(async (plugin) => {
                 try {
+                    elizaLogger.info(`Importing plugin: ${plugin}`); // Add this
                     const importedPlugin = await import(plugin);
                     const functionName =
                         plugin
@@ -824,7 +831,7 @@ export async function createAgent(
 ): Promise<AgentRuntime> {
     elizaLogger.log(`Creating runtime for character ${character.name}`);
 
-    // nodePlugin ??= createNodePlugin();
+    nodePlugin ??= createNodePlugin();
 
     // const teeMode = getSecret(character, "TEE_MODE") || "OFF";
     // const walletSecretSalt = getSecret(character, "WALLET_SECRET_SALT");
@@ -905,12 +912,12 @@ export async function createAgent(
         character,
         // character.plugins are handled when clients are added
         plugins: [
-            getSecret(character, "BITMIND") ? bittensorPlugin : null,
+            getSecret(character, "BITMIND") ? (elizaLogger.info("Loading bittensor plugin"), bittensorPlugin) : null,
             // getSecret(character, "IQ_WALLET_ADDRESS") &&
             // getSecret(character, "IQSOlRPC")
             //     ? elizaCodeinPlugin
             //     : null,
-            // bootstrapPlugin,
+            bootstrapPlugin,
             // getSecret(character, "CDP_API_KEY_NAME") && getSecret(character, "CDP_API_KEY_PRIVATE_KEY") && getSecret(character, "CDP_AGENT_KIT_NETWORK")
             //     ? agentKitPlugin
             //     : null,
@@ -920,9 +927,9 @@ export async function createAgent(
             // getSecret(character, "CONFLUX_CORE_PRIVATE_KEY")
             //     ? confluxPlugin
             //     : null,
-            // nodePlugin,
+            nodePlugin,
             // (getSecret(character, "ROUTER_NITRO_EVM_PRIVATE_KEY") && getSecret(character, "ROUTER_NITRO_EVM_ADDRESS")) ? nitroPlugin : null,
-            // getSecret(character, "TAVILY_API_KEY") ? webSearchPlugin : null,
+            getSecret(character, "TAVILY_API_KEY") ? (elizaLogger.info("Loading web-search plugin"), webSearchPlugin) : null,
             // getSecret(character, "SOLANA_PUBLIC_KEY") ||
             //     (getSecret(character, "WALLET_PUBLIC_KEY") &&
             //         !getSecret(character, "WALLET_PUBLIC_KEY")?.startsWith("0x"))
@@ -1281,6 +1288,7 @@ const hasValidRemoteUrls = () =>
     process.env.REMOTE_CHARACTER_URLS.startsWith("http");
 
 const startAgents = async () => {
+    elizaLogger.info("Initializing DirectClient...");
     const directClient = new DirectClient();
     let serverPort = Number.parseInt(settings.SERVER_PORT || "3000");
     const args = parseArguments();
@@ -1328,6 +1336,7 @@ const startAgents = async () => {
     directClient.loadCharacterTryPath = loadCharacterTryPath;
     directClient.jsonToCharacter = jsonToCharacter;
 
+    elizaLogger.info(`Starting DirectClient server on port ${serverPort}...`); // Add this
     directClient.start(serverPort);
 
     if (serverPort !== Number.parseInt(settings.SERVER_PORT || "3000")) {
