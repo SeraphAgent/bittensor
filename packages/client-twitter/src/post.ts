@@ -56,24 +56,29 @@ const webSearchTwitterPostTemplate = `
 # Current Matrix Intel
 Title: {{trendingTopic}}
 Data Stream: {{topicContext}}
-Source Node: {{sourceUrl}}
+Primary Node: {{sourceUrl}}
+{{#if sourceCount > 1}}Auxiliary Nodes: {{additionalSourceUrls}}{{/if}}
 
 # Task: Generate terminal output as Seraph (@{{twitterUserName}})
 
 Guidelines:
 - Write in authentic hacker/shitpost voice
 - Drop technical truth bombs ONLY about the current Matrix Intel
-- Keep to 1-3 sentences max (random length)
+- Keep to 2-3 sentences max (random length)
 - Use declarative statements (no questions)
 - Stay under {{maxTweetLength}} chars
 - Mix deep tech knowledge with dark humor
 - Use \\n\\n for clean line breaks
 - Optional: Include ASCII art/glitch patterns
-- Focus on REAL metrics and data from the Source Node
+- Focus on REAL metrics and data from the Data Stream
 - NO hallucinated statistics or data
 - Maintain underground/shadow runner vibe
-- IMPORTANT: Always end tweet with "Source: {{sourceUrl}} <|Ξ/>" on its own line
+- IMPORTANT: Always end tweet with source attribution on its own line
+{{#if sourceCount > 1}}
+- Format final line exactly as: "\\n\\nPrimary: {{sourceUrl}} <|Ξ/>"
+{{else}}
 - Format final line exactly as: "\\n\\nSource: {{sourceUrl}} <|Ξ/>"
+{{/if}}
 
 Output should demonstrate Seraph's technical expertise while being {{adjective}} in nature.`;
 
@@ -534,8 +539,7 @@ export class TwitterPostClient {
                 elizaLogger.info("Initializing web search service...");
                 const webSearchService = new WebSearchService();
                 await webSearchService.initialize(this.runtime);
-                
-                const searchResults = [];            
+                       
                 const randomQuery = TRENDING_QUERIES[Math.floor(Math.random() * TRENDING_QUERIES.length)];
                 elizaLogger.info(`Selected trending query: "${randomQuery}"`);
 
@@ -557,12 +561,6 @@ export class TwitterPostClient {
                 elizaLogger.info(`Found ${searchResponse.results.length} search results`);
                 const topResults = searchResponse.results.slice(0, 3);
                 
-                const sourceUrl = topResults[0]?.url;
-                if (!sourceUrl) {
-                    elizaLogger.error("No valid source URL found in search results");
-                    return;
-                }
-                
                 const cleanSearchResults = topResults.map(result => {
                     return {
                         title: result.title.replace(/- .*$/, '').trim(),
@@ -577,11 +575,6 @@ export class TwitterPostClient {
                     const isOld = /2023|2022/i.test(result.content);
                     return !isNavigationOrMenu && !isOld;
                 });
-                
-                const combinedContext = cleanSearchResults
-                .map(result => `${result.title}\n${result.content}`)
-                .join('\n\n')
-                .slice(0, 1000); // Limit context length
 
                 elizaLogger.info(`Found ${topResults.length} relevant search results for context`);
                 elizaLogger.info("Using combined results for tweet generation:");
@@ -590,6 +583,25 @@ export class TwitterPostClient {
                     elizaLogger.info(`- Title: ${result.title}`);
                     elizaLogger.info(`- URL: ${result.url}`);
                 });
+
+                const primarySource = cleanSearchResults.reduce((prev, current) => 
+                    (prev.content.length > current.content.length) ? prev : current
+                );
+                
+                const sourceUrl = primarySource.url;
+                if (!sourceUrl) {
+                    elizaLogger.error("No valid source URL found in search results");
+                    return;
+                }
+
+                const combinedContext = cleanSearchResults
+                .map(result => `${result.title}\n${result.content}`)
+                .join('\n\n')
+                .slice(0, 1000); // Limit context length
+
+                const sourcesContext = cleanSearchResults
+                .map(result => result.url)
+                .join(', ');
 
                 await this.runtime.ensureUserExists(
                     this.runtime.agentId,
@@ -607,7 +619,8 @@ export class TwitterPostClient {
                             text: combinedContext,
                             action: "TWEET",
                             context: "trending_topic",
-                            url: sourceUrl // Pass the source URL
+                            url: sourceUrl,
+                            additionalSources: sourcesContext
                         },
                     },
                     {
@@ -618,7 +631,9 @@ export class TwitterPostClient {
                         adjective: "informative",
                         maxTweetLength: this.client.twitterConfig.MAX_TWEET_LENGTH,
                         knowledge: `Recent AI Technology Updates:\n${combinedContext}`,
-                        sourceUrl: sourceUrl // Add source URL to template variables
+                        sourceUrl: sourceUrl, // Add source URL to template variables
+                        additionalSourceUrls: sourcesContext,  // Make additional sources available to template
+                        sourceCount: cleanSearchResults.length
                     }
                 );
         
