@@ -31,10 +31,11 @@ import type { ActionResponse } from "@elizaos/core";
 import { WebSearchService } from "@elizaos/plugin-web-search";
 
 const TRENDING_QUERIES = [
-    "latest artificial intelligence news today",
+    "latest generative AI news today",
     "breaking AI technology news last 24 hours",
     "recent decentralized AI developments today",
-    "latest web3 AI news today"
+    "latest Web3 news today",
+    "latest deepfake news today"
 ];
 
 const MAX_TIMELINES_TO_FETCH = 15;
@@ -103,15 +104,24 @@ export const twitterActionTemplate =
 {{bio}}
 {{postDirections}}
 
-Guidelines:
-- ONLY engage with content that DIRECTLY relates to character's core interests
-- Direct mentions are priority IF they are on-topic
-- Skip ALL content that is:
-  - Off-topic or tangentially related
-  - From high-profile accounts unless explicitly relevant
-  - Generic/viral content without specific relevance
-  - Political/controversial unless central to character
-  - Promotional/marketing unless directly relevant
+Guidelines for REPLIES ONLY:
+- ONLY reply if ALL criteria are met:
+  1. Content is DIRECTLY related to character's core expertise
+  2. Character can provide unique, technical insight
+  3. Reply would add substantial value to discussion
+  4. Topic requires character's specific domain knowledge
+  
+AUTOMATIC REJECT for replies if:
+- Off-topic or tangentially related
+- Generic questions/comments
+- Simple acknowledgments or praise
+- Promotional/marketing content
+- Personal/emotional appeals
+- Casual/social interactions
+- Content requiring opinions outside expertise
+- Vague or unclear requests
+- Spam/bot-like content
+- Political/controversial unless central to character
 
 Actions (respond only with tags):
 [LIKE] - Perfect topic match AND aligns with character (9.8/10)
@@ -1314,6 +1324,57 @@ export class TwitterPostClient {
         return results;
     }
 
+    private shouldProcessReply(tweet: Tweet): boolean {
+        // Skip if tweet is older than 12 hours
+        const tweetAge = Date.now() - (tweet.timestamp * 1000);
+        if (tweetAge > 12 * 60 * 60 * 1000) {
+            elizaLogger.log(`Tweet ${tweet.id} is too old (${Math.round(tweetAge / (60 * 60 * 1000))} hours)`);
+            return false;
+        }
+
+        // Skip if tweet is from a blocked user pattern
+        const blockedPatterns = [
+            /bot/i,
+            /promo/i,
+            /marketing/i,
+            /\b(buy|sell|price)\b/i,
+            /\b(dm|pm)\b/i,
+        ];
+        
+        if (blockedPatterns.some(pattern => 
+            pattern.test(tweet.username) || 
+            pattern.test(tweet.name) ||
+            pattern.test(tweet.text)
+        )) {
+            elizaLogger.log(`Tweet ${tweet.id} matches blocked patterns`);
+            return false;
+        }
+
+        // Skip if tweet contains too many hashtags (likely spam)
+        const hashtagCount = (tweet.text.match(/#/g) || []).length;
+        if (hashtagCount > 3) {
+            elizaLogger.log(`Tweet ${tweet.id} has too many hashtags (${hashtagCount})`);
+            return false;
+        }
+
+        // Skip if tweet is too short or lacks substance
+        const meaningfulContent = tweet.text
+            .replace(/(@\w+|#\w+|https?:\/\/\S+)/g, '') // Remove mentions, hashtags, and URLs
+            .trim();
+        if (meaningfulContent.length < 15) {
+            elizaLogger.log(`Tweet ${tweet.id} lacks meaningful content`);
+            return false;
+        }
+
+        // Skip if tweet is just a mention without context
+        if (tweet.text.split(' ').length <= 2 && tweet.text.includes('@')) {
+            elizaLogger.log(`Tweet ${tweet.id} is just a mention without context`);
+            return false;
+        }
+
+        return true;
+    }
+
     /**
      * Handles text-only replies to tweets. If isDryRun is true, only logs what would
      * have been replied without making API calls.
@@ -1324,6 +1385,11 @@ export class TwitterPostClient {
         executedActions: string[]
     ) {
         try {
+            if (!this.shouldProcessReply(tweet)) {
+                elizaLogger.info(`Skipping reply to tweet ${tweet.id} - failed validation checks`);
+                return;
+            }
+
             // Build conversation thread for context
             const thread = await buildConversationThread(tweet, this.client);
             const formattedConversation = thread
