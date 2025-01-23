@@ -242,11 +242,9 @@ export const analysisHistory: Action = {
         try {
             const limit = options?.limit || 10;
         
-            // Get all rooms the agent is in
             const rooms = await runtime.databaseAdapter.getRoomsForParticipant(runtime.agentId);
             elizaLogger.info(`📊 BitMind: Found ${rooms.length} rooms`);
     
-            // Get memories from each room and combine them
             const allMemories = await runtime.messageManager.getMemoriesByRoomIds({
                 roomIds: rooms,
                 limit: limit * 5
@@ -261,11 +259,9 @@ export const analysisHistory: Action = {
             elizaLogger.info(`📊 BitMind: Found ${imageAnalyses.length} image analyses`);
 
             if (!imageAnalyses || imageAnalyses.length === 0) {
-                callback({
-                    text: "No image analyses found.",
-                });
                 return;
             }
+
             const statistics = imageAnalyses.reduce((acc, analysis) => {
                 acc.total++;
                 if (analysis.content.isAIGenerated) acc.aiCount++;
