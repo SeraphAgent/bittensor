@@ -398,9 +398,7 @@ function commaSeparatedStringToArray(commaSeparated: string): string[] {
     return commaSeparated?.split(",").map((value) => value.trim());
 }
 
-async function readCharactersFromStorage(
-    characterPaths: string[]
-): Promise<string[]> {
+async function readCharactersFromStorage(characterPaths: string[]): Promise<string[]> {
     try {
         const uploadDir = path.join(process.cwd(), "data", "characters");
         await fs.promises.mkdir(uploadDir, { recursive: true });
