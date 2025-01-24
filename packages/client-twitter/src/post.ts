@@ -104,27 +104,31 @@ Your response should not contain any questions. Brief, concise statements only. 
 
 
 export const twitterActionTemplate =
-    `
+`
 # INSTRUCTIONS: Determine actions for {{agentName}} (@{{twitterUserName}}) based on:
 {{bio}}
 {{postDirections}}
 
 Guidelines for REPLIES ONLY:
-- ONLY reply if ALL criteria are met:
+- REPLY automatically to:
+  1. Image verification requests
+  2. Authenticity verification requests
+  3. Questions directly related to character's expertise
+
+- ONLY reply to other content if ALL criteria are met:
   1. Content is DIRECTLY related to character's core expertise
   2. Character can provide unique, technical insight
   3. Reply would add substantial value to discussion
   4. Topic requires character's specific domain knowledge
-  
+
 AUTOMATIC REJECT for replies if:
-- Off-topic or tangentially related
-- Generic questions/comments
+- Off-topic or tangentially related (except verification requests)
+- Generic comments unrelated to verification/expertise
 - Simple acknowledgments or praise
 - Promotional/marketing content
 - Personal/emotional appeals
 - Casual/social interactions
 - Content requiring opinions outside expertise
-- Vague or unclear requests
 - Spam/bot-like content
 - Political/controversial unless central to character
 
@@ -132,7 +136,7 @@ Actions (respond only with tags):
 [LIKE] - Perfect topic match AND aligns with character (9.8/10)
 [RETWEET] - Exceptional content that embodies character's expertise (9.5/10)
 [QUOTE] - Can add substantial domain expertise (9.5/10)
-[REPLY] - Can contribute meaningful, expert-level insight (9.5/10)
+[REPLY] - Can contribute meaningful insight OR verification needed (9.5/10)
 
 Tweet:
 {{currentTweet}}
@@ -1343,32 +1347,29 @@ export class TwitterPostClient {
         // Skip if tweet is older than 12 hours
         const tweetAge = Date.now() - (tweet.timestamp * 1000);
         if (tweetAge > 12 * 60 * 60 * 1000) {
-            elizaLogger.log(`Tweet ${tweet.id} is too old (${Math.round(tweetAge / (60 * 60 * 1000))} hours)`);
+            elizaLogger.info(`Tweet ${tweet.id} is too old (${Math.round(tweetAge / (60 * 60 * 1000))} hours)`);
             return false;
         }
 
-        // Skip if tweet is from a blocked user pattern
-        const blockedPatterns = [
-            /bot/i,
-            /promo/i,
-            /marketing/i,
-            /\b(buy|sell|price)\b/i,
-            /\b(dm|pm)\b/i,
+        // Check for verification-related content first
+        const verificationKeywords = [
+            'verify', 'verification', 'real', 'fake', 'authentic', 
+            'generated', 'detection', 'genuine', 'check', 'legit'
         ];
+        const hasVerificationRequest = verificationKeywords.some(keyword => 
+            tweet.text.toLowerCase().includes(keyword)
+        );
         
-        if (blockedPatterns.some(pattern => 
-            pattern.test(tweet.username) || 
-            pattern.test(tweet.name) ||
-            pattern.test(tweet.text)
-        )) {
-            elizaLogger.log(`Tweet ${tweet.id} matches blocked patterns`);
-            return false;
+        // Always process if it's a verification request and has media
+        if (hasVerificationRequest && (tweet.photos?.length > 0 || tweet.videos?.length > 0)) {
+            elizaLogger.info(`Tweet ${tweet.id} is a verification request with media`);
+            return true;
         }
 
         // Skip if tweet contains too many hashtags (likely spam)
         const hashtagCount = (tweet.text.match(/#/g) || []).length;
-        if (hashtagCount > 3) {
-            elizaLogger.log(`Tweet ${tweet.id} has too many hashtags (${hashtagCount})`);
+        if (hashtagCount > 10) {
+            elizaLogger.info(`Tweet ${tweet.id} has too many hashtags (${hashtagCount})`);
             return false;
         }
 
@@ -1376,14 +1377,14 @@ export class TwitterPostClient {
         const meaningfulContent = tweet.text
             .replace(/(@\w+|#\w+|https?:\/\/\S+)/g, '') // Remove mentions, hashtags, and URLs
             .trim();
-        if (meaningfulContent.length < 15) {
-            elizaLogger.log(`Tweet ${tweet.id} lacks meaningful content`);
+        if (meaningfulContent.length < 5) {
+            elizaLogger.info(`Tweet ${tweet.id} lacks meaningful content`);
             return false;
         }
 
         // Skip if tweet is just a mention without context
         if (tweet.text.split(' ').length <= 2 && tweet.text.includes('@')) {
-            elizaLogger.log(`Tweet ${tweet.id} is just a mention without context`);
+            elizaLogger.info(`Tweet ${tweet.id} is just a mention without context`);
             return false;
         }
 

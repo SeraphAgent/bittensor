@@ -275,7 +275,7 @@ export class TwitterInteractionClient {
                         tweet,
                         this.client
                     );
-
+                    elizaLogger.info(tweet.text);
                     const message = {
                         content: { 
                             text: tweet.text,
@@ -302,7 +302,13 @@ export class TwitterInteractionClient {
 
             elizaLogger.log("Finished checking Twitter interactions");
         } catch (error) {
-            elizaLogger.error("Error handling Twitter interactions:", error);
+            elizaLogger.error("Error handling Twitter interactions:", {
+                error,
+                message: error.message,
+                stack: error.stack,
+                twitterUsername,
+                config: this.client.twitterConfig // Log config without sensitive data
+            });
         }
     }
 
@@ -349,22 +355,40 @@ export class TwitterInteractionClient {
             .join("\n\n");
 
         const imageDescriptionsArray = [];
-        try{
-            for (const photo of tweet.photos) {
-                const description = await this.runtime
-                    .getService<IImageDescriptionService>(
-                        ServiceType.IMAGE_DESCRIPTION
-                    )
-                    .describeImage(photo.url);
-                imageDescriptionsArray.push(description);
+        try {
+            if (tweet.photos?.length > 0) {
+                for (const photo of tweet.photos) {
+                    try {
+                        const description = await this.runtime
+                            .getService<IImageDescriptionService>(
+                                ServiceType.IMAGE_DESCRIPTION
+                            )
+                            .describeImage(photo.url);
+                            
+                        // Add null check and fallback for description
+                        if (description) {
+                            imageDescriptionsArray.push({
+                                title: description.title || 'Image Analysis',
+                                description: description.description || 'Unable to analyze image details'
+                            });
+                        } else {
+                            imageDescriptionsArray.push({
+                                title: 'Image Analysis',
+                                description: 'Image pending analysis'
+                            });
+                        }
+                    } catch (error) {
+                        elizaLogger.error(`Error describing image ${photo.url}:`, error);
+                        imageDescriptionsArray.push({
+                            title: 'Image Analysis Error',
+                            description: 'Unable to analyze image at this time'
+                        });
+                    }
+                }
             }
         } catch (error) {
-    // Handle the error
-    elizaLogger.error("Error Occured during describing image: ", error);
-}
-
-
-
+            elizaLogger.error("Error occurred during image description:", error);
+        }
 
         let state = await this.runtime.composeState(message, {
             twitterClient: this.client.twitterClient,
@@ -372,8 +396,9 @@ export class TwitterInteractionClient {
             currentPost,
             formattedConversation,
             imageDescriptions: imageDescriptionsArray.length > 0
-            ? `\nImages in Tweet:\n${imageDescriptionsArray.map((desc, i) =>
-              `Image ${i + 1}: Title: ${desc.title}\nDescription: ${desc.description}`).join("\n\n")}`:""
+                ? `\nImages in Tweet:\n${imageDescriptionsArray.map((desc, i) =>
+                    `Image ${i + 1}: ${desc.title}\nDescription: ${desc.description}`).join("\n\n")}`
+                : ""
         });
 
         // check if the tweet exists, save if it doesn't
