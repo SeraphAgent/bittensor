@@ -373,6 +373,9 @@ export interface Memory {
     /** Optional creation timestamp */
     createdAt?: number;
 
+    /** Optional expiration timestamp */
+    expiresAt?: number;
+
     /** Memory content */
     content: Content;
 

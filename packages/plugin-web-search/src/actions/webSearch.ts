@@ -12,6 +12,7 @@ import type { SearchResult } from "../types";
 
 const DEFAULT_MAX_WEB_SEARCH_TOKENS = 4000;
 const DEFAULT_MODEL_ENCODING = "gpt-3.5-turbo";
+const DEFAULT_WEB_SEARCH_TTL_DAYS = 1;
 
 interface WebSearchMemory extends Memory {
     content: {
@@ -109,6 +110,7 @@ export const webSearch: Action = {
                     actionType: "WEB_SEARCH"
                 },
                 createdAt: Date.now(),
+                expiresAt: Date.now() + (DEFAULT_WEB_SEARCH_TTL_DAYS * 24 * 60 * 60 * 1000),
             };
 
             elizaLogger.info("Saving web search memory:", {
@@ -117,6 +119,18 @@ export const webSearch: Action = {
             });
 
             await runtime.messageManager.createMemory(searchMemory);
+
+            const oldMemories = await runtime.messageManager.getMemories({
+                roomId: message.roomId,
+                unique: true
+            });
+            
+            const now = Date.now();
+            for (const memory of oldMemories) {
+                if (memory.expiresAt && memory.expiresAt < now) {
+                    await runtime.messageManager.removeMemory(memory.id!);
+                }
+            }
             
             elizaLogger.info("Web search memory saved");
 

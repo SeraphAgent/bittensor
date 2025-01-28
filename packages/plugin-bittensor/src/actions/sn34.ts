@@ -8,6 +8,9 @@ import {
 } from "@elizaos/core";
 import { elizaLogger } from "@elizaos/core";
 
+const DEFAULT_ANALYSIS_TTL_DAYS = 1;
+
+
 interface AIImageDetectionResult {
     isAIGenerated: boolean;
     confidenceScore: number;
@@ -165,6 +168,7 @@ export const analyzeImage: Action = {
                     actionType: "DETECT_IMAGE"
                 },
                 createdAt: Date.now(),
+                expiresAt: Date.now() + (DEFAULT_ANALYSIS_TTL_DAYS * 24 * 60 * 60 * 1000)
             };
 
             elizaLogger.info("Saving analysis memory:", {
@@ -176,6 +180,18 @@ export const analyzeImage: Action = {
             
             elizaLogger.info("Analysis memory saved");
 
+            // Clean up expired memories
+            const oldMemories = await runtime.messageManager.getMemories({
+                roomId: message.roomId,
+                unique: true
+            });
+
+            const now = Date.now();
+            for (const memory of oldMemories) {
+                if (memory.expiresAt && memory.expiresAt < now) {
+                    await runtime.messageManager.removeMemory(memory.id!);
+                }
+            }
             callback({
                 text: generateAnalysisReport(result),
                 isAIGenerated: result.isAIGenerated,

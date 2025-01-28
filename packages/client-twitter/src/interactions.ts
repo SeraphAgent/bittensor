@@ -454,7 +454,7 @@ export class TwitterInteractionClient {
 
         // Promise<"RESPOND" | "IGNORE" | "STOP" | null> {
         if (shouldRespond !== "RESPOND") {
-            elizaLogger.log("Not responding to message");
+            elizaLogger.info("Not responding to message");
             return { text: "Response Decision:", action: shouldRespond };
         }
 
@@ -510,6 +510,9 @@ export class TwitterInteractionClient {
                     const callback: HandlerCallback = async (
                         response: Content
                     ) => {
+                        elizaLogger.info(
+                            `Sending reply to tweet ${tweet.id} from @${tweet.username}: ${response.text}`
+                        );
                         const memories = await sendTweet(
                             this.client,
                             response,
