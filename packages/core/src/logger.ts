@@ -1,5 +1,7 @@
-import pino, { LogFn } from "pino";
+import pino, { LogFn, LogDescriptor } from "pino";
 import pretty from "pino-pretty";
+import path from "path";
+import fs from "fs";
 
 const customLevels: Record<string, number> = {
     fatal: 60,
@@ -16,14 +18,52 @@ const customLevels: Record<string, number> = {
 const raw = process?.env?.LOG_JSON_FORMAT || false;
 
 const createStream = () => {
-    if (raw) {
-        return undefined;
+    // Create logs directory if it doesn't exist
+    const logsDir = path.join(process.cwd(), 'logs');
+    if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir);
     }
-    return pretty({
-        colorize: true,
-        translateTime: "yyyy-mm-dd HH:MM:ss",
-        ignore: "pid,hostname",
+
+    // Create file stream with custom formatting
+    const logFile = path.join(logsDir, 'app.log');
+    const fileStream = pretty({
+        destination: fs.createWriteStream(logFile, { flags: 'a' }),
+        colorize: false,
+        messageFormat: (log: LogDescriptor, messageKey: string) => {
+            const date = new Date().toISOString().replace('T', ' ').slice(0, 19);
+            const levelNum = typeof log.level === 'number' ? log.level : 30;
+            const level = levelNum >= 50 ? 'ERROR' : 
+                         levelNum >= 40 ? 'WARN' : 
+                         levelNum >= 30 ? 'INFO' :
+                         levelNum >= 28 ? 'PROGRESS' :
+                         levelNum >= 27 ? 'SUCCESS' :
+                         levelNum >= 20 ? 'DEBUG' : 'TRACE';
+            return `[${date}] ${level}: ${log[messageKey]}`;
+        },
+        ignore: "pid,hostname,level,time",
     });
+
+    // Create pretty console stream with same formatting
+    const consoleStream = pretty({
+        colorize: true,
+        messageFormat: (log: LogDescriptor, messageKey: string) => {
+            const date = new Date().toISOString().replace('T', ' ').slice(0, 19);
+            const levelNum = typeof log.level === 'number' ? log.level : 30;
+            const level = levelNum >= 50 ? 'ERROR' : 
+                         levelNum >= 40 ? 'WARN' : 
+                         levelNum >= 30 ? 'INFO' :
+                         levelNum >= 28 ? 'PROGRESS' :
+                         levelNum >= 27 ? 'SUCCESS' :
+                         levelNum >= 20 ? 'DEBUG' : 'TRACE';
+            return `[${date}] ${level}: ${log[messageKey]}`;
+        },
+        ignore: "pid,hostname,level,time",
+    });
+
+    return pino.multistream([
+        { stream: fileStream },
+        { stream: consoleStream }
+    ]);
 };
 
 const defaultLevel = process?.env?.DEFAULT_LOG_LEVEL || "info";
