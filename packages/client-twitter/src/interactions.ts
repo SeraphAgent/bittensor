@@ -41,7 +41,7 @@ Recent interactions between {{agentName}} and other users:
 
 {{recentPosts}}
 
-# TASK: Generate a post/reply in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}) while using the thread of tweets as additional context:
+# TASK: Generate a post/reply in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}) while using the thread of tweets as additional context. Your response MUST be under 280 characters:
 
 Current Post:
 {{currentPost}}
@@ -51,11 +51,16 @@ Here is the descriptions of images in the Current post.
 Thread of Tweets You Are Replying To:
 {{formattedConversation}}
 
-# INSTRUCTIONS: Generate a post in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}). You MUST include an action if the current post text includes a prompt that is similar to one of the available actions mentioned here:
+# INSTRUCTIONS: 
+1. Generate a post in the voice, style and perspective of {{agentName}} (@{{twitterUserName}})
+2. IMPORTANT: Your response MUST be less than 280 characters (including spaces and punctuation)
+3. You MUST include an action if the current post text includes a prompt that is similar to one of the available actions mentioned here:
 {{actionNames}}
 {{actions}}
 
-Here is the current post text again. Remember to include an action if the current post text includes a prompt that asks for one of the available actions mentioned above (does not need to be exact)
+Here is the current post text again. Remember:
+- Keep response under 280 characters
+- Include an action if the current post text includes a prompt that asks for one of the available actions mentioned above (does not need to be exact)
 {{currentPost}}
 Here is the descriptions of images in the Current post.
 {{imageDescriptions}}
@@ -510,6 +515,20 @@ export class TwitterInteractionClient {
                     const callback: HandlerCallback = async (
                         response: Content
                     ) => {
+                        elizaLogger.log('Response length check:', {
+                            originalLength: response.text.length,
+                            text: response.text
+                        });
+
+                        if (response.text.length > 280) {
+                            elizaLogger.warn(`Response exceeds Twitter's 280 character limit:`, {
+                                length: response.text.length,
+                                text: response.text
+                            });
+                            
+                            response.text = response.text.slice(0, 277) + '...';
+                        }
+
                         elizaLogger.info(
                             `Sending reply to tweet ${tweet.id} from @${tweet.username}: ${response.text}`
                         );
