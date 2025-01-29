@@ -20,6 +20,8 @@ import {
 import type { ClientBase } from "./base";
 import { buildConversationThread, sendTweet, wait } from "./utils.ts";
 
+const DEFAULT_TWITTER_MEMORY_TTL_DAYS = 1;
+
 export const twitterMessageHandlerTemplate =
     `
 # Areas of Expertise
@@ -434,8 +436,22 @@ export class TwitterInteractionClient {
                 userId: userIdUUID,
                 roomId,
                 createdAt: tweet.timestamp * 1000,
+                expiresAt: tweet.timestamp * 1000 + (DEFAULT_TWITTER_MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000),
             };
             this.client.saveRequestMessage(message, state);
+            
+            // Clean up expired memories
+            const oldMemories = await this.runtime.messageManager.getMemories({
+                roomId: message.roomId,
+                unique: true
+            });
+
+            const now = Date.now();
+            for (const memory of oldMemories) {
+                if (memory.expiresAt && memory.expiresAt < now) {
+                    await this.runtime.messageManager.removeMemory(memory.id!);
+                }
+            }
         }
 
         // get usernames into str
