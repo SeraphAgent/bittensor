@@ -484,9 +484,20 @@ export class TwitterPostClient {
                     await client.twitterClient.sendTweet(content, tweetId)
             );
             const body = await standardTweetResult.json();
+
+            if (body.errors) {
+                const error = body.errors[0];
+                if (error.code === 186) {  // Tweet too long error
+                    elizaLogger.warn("Tweet too long, truncating content");
+                    const truncatedContent = content.slice(0, 277) + "...";
+                    // Retry with truncated content
+                    return await this.sendStandardTweet(client, truncatedContent, tweetId);
+                }
+                throw new Error(`Twitter API Error: ${error.message} (Code: ${error.code})`);
+            }
             if (!body?.data?.create_tweet?.tweet_results?.result) {
                 console.error("Error sending tweet; Bad response:", body);
-                return;
+                throw new Error("Failed to create tweet: Invalid response format");
             }
             return body.data.create_tweet.tweet_results.result;
         } catch (error) {

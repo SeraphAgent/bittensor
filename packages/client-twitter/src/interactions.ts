@@ -19,6 +19,7 @@ import {
 } from "@elizaos/core";
 import type { ClientBase } from "./base";
 import { buildConversationThread, sendTweet, wait } from "./utils.ts";
+import { DEFAULT_MAX_TWEET_LENGTH } from "./environment.ts";
 
 const DEFAULT_TWITTER_MEMORY_TTL_DAYS = 1;
 
@@ -512,6 +513,16 @@ export class TwitterInteractionClient {
             modelClass: ModelClass.LARGE,
         });
 
+        if (!response || typeof response !== 'object') {
+            elizaLogger.error('Invalid response format from LLM:', response);
+            return;
+        }
+
+        if (!response.text || typeof response.text !== 'string') {
+            elizaLogger.error('Missing or invalid text in response:', response);
+            return;
+        }
+
         const removeQuotes = (str: string) =>
             str.replace(/^['"](.*)['"]$/, "$1");
 
@@ -519,7 +530,10 @@ export class TwitterInteractionClient {
 
         response.inReplyTo = stringId;
 
-        response.text = removeQuotes(response.text);
+        response.text = removeQuotes(response.text)
+            .replace(/\\"/g, '"')  // Fix escaped quotes
+            .replace(/\s+/g, ' ')  // Normalize whitespace
+            .trim();
 
         if (response.text) {
             if (this.isDryRun) {
@@ -531,12 +545,16 @@ export class TwitterInteractionClient {
                     const callback: HandlerCallback = async (
                         response: Content
                     ) => {
+                        if (!response?.text) {
+                            throw new Error('Invalid response content in callback');
+                        }
+
                         elizaLogger.log('Response length check:', {
                             originalLength: response.text.length,
                             text: response.text
                         });
 
-                        if (response.text.length > 280) {
+                        if (response.text.length > DEFAULT_MAX_TWEET_LENGTH) {
                             elizaLogger.warn(`Response exceeds Twitter's 280 character limit:`, {
                                 length: response.text.length,
                                 text: response.text
