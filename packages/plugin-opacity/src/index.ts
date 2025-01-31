@@ -1,14 +1,19 @@
-import OpenAI from "openai";
+import { Plugin } from "@elizaos/core";
+import { TwitterClientInterface } from "@elizaos/client-twitter";
 import {
     type IVerifiableInferenceAdapter,
-    type VerifiableInferenceOptions,
+    type VerifiableInferenceOptions, 
     type VerifiableInferenceResult,
     VerifiableInferenceProvider,
     ModelProviderName,
     models,
     elizaLogger,
 } from "@elizaos/core";
+import OpenAI from "openai";
 import { verifyProof } from "./utils/api";
+import { generateProof as generateProofAction } from "./actions/proofGenerator";
+import { verifyProof as verifyProofAction } from "./actions/proofVerifier";
+
 interface OpacityOptions {
     modelProvider?: ModelProviderName;
     token?: string;
@@ -200,4 +205,16 @@ export class OpacityAdapter implements IVerifiableInferenceAdapter {
     }
 }
 
-export default OpacityAdapter;
+export * as actions from "./actions/index";
+
+export const opacityPlugin: Plugin = {
+    name: "opacity",
+    description: "Generate and verify cryptographic proofs of autonomous agent activity using the Opacity prover network",
+    actions: [
+        generateProofAction,
+        verifyProofAction
+    ],
+    clients: [TwitterClientInterface]
+};
+
+export default opacityPlugin;

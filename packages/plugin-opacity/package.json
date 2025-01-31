@@ -12,6 +12,7 @@
     },
     "dependencies": {
         "@elizaos/core": "workspace:*",
+        "@elizaos/client-twitter": "workspace:*",
         "dotenv": "^16.4.5"
     },
     "devDependencies": {

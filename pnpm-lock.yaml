@@ -3516,6 +3516,9 @@ importers:
 
   packages/plugin-opacity:
     dependencies:
+      '@elizaos/client-twitter':
+        specifier: workspace:*
+        version: link:../client-twitter
       '@elizaos/core':
         specifier: workspace:*
         version: link:../core
