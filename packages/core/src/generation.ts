@@ -396,7 +396,7 @@ export async function generateText({
                 throw new Error("Failed to verify inference proof");
             }
 
-            return result.text;
+            return `${result.text}\n\nProof ID: ${result.id}`;
         } catch (error) {
             elizaLogger.error("Error in verifiable inference:", error);
             throw error;

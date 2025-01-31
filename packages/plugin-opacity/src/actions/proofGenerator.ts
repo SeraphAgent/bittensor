@@ -72,7 +72,7 @@ const generateProofReport = (result: ProofGenerationResult): string => {
     return `🔐 Proof of Autonomy
 📝 Proof ID: ${result.proofId}
 
-@seraphagent Please verify this proof of autonomous activity.
+@seraphagent Please verify this proof of autonomy activity.
 —————————————————`;
 };
 
