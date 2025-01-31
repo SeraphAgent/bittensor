@@ -1,3 +1,4 @@
+import OpenAI from "openai";
 import {
     type IVerifiableInferenceAdapter,
     type VerifiableInferenceOptions,
@@ -14,10 +15,13 @@ interface OpacityOptions {
     teamId?: string;
     teamName?: string;
     opacityProverUrl: string;
+    siteUrl?: string;
+    siteName?: string;
 }
 
 export class OpacityAdapter implements IVerifiableInferenceAdapter {
     public options: OpacityOptions;
+    private openaiClient?: OpenAI;
 
     constructor(options: OpacityOptions) {
         this.options = options;
@@ -29,9 +33,6 @@ export class OpacityAdapter implements IVerifiableInferenceAdapter {
         options?: VerifiableInferenceOptions
     ): Promise<VerifiableInferenceResult> {
         const provider = this.options.modelProvider || ModelProviderName.OPENAI;
-        const baseEndpoint =
-            options?.endpoint ||
-            `https://gateway.ai.cloudflare.com/v1/${this.options.teamId}/${this.options.teamName}`;
         const model = models[provider].model[modelClass];
         const apiKey = this.options.token;
 
@@ -40,113 +41,135 @@ export class OpacityAdapter implements IVerifiableInferenceAdapter {
             model: modelClass,
         });
 
-        // Get provider-specific endpoint
+        // Get provider-specific endpoint and configuration
         let endpoint;
         let authHeader;
+        let useOpenAISDK = false;
 
         switch (provider) {
             case ModelProviderName.OPENAI:
+                const baseEndpoint = options?.endpoint ||
+                    `https://gateway.ai.cloudflare.com/v1/${this.options.teamId}/${this.options.teamName}`;
                 endpoint = `${baseEndpoint}/openai/chat/completions`;
                 authHeader = `Bearer ${apiKey}`;
+                break;
+            case ModelProviderName.OPENROUTER:
+                endpoint = "https://openrouter.ai/api/v1/chat/completions";
+                authHeader = `Bearer ${apiKey}`;
+                useOpenAISDK = true;
+                // Initialize OpenAI client if not already done
+                if (!this.openaiClient) {
+                    this.openaiClient = new OpenAI({
+                        baseURL: "https://openrouter.ai/api/v1",
+                        apiKey: this.options.token,
+                        defaultHeaders: {
+                            "HTTP-Referer": this.options.siteUrl || "",
+                            "X-Title": this.options.siteName || "",
+                        }
+                    });
+                }
                 break;
             default:
                 throw new Error(`Unsupported model provider: ${provider}`);
         }
 
         try {
-            let body;
+            let response;
+            let responseId;
+            let responseJson;
             // Handle different API formats
-            switch (provider) {
-                case ModelProviderName.OPENAI:
-                    body = {
-                        model: model.name,
-                        messages: [
-                            {
-                                role: "system",
-                                content: context,
-                            },
-                        ],
-                        temperature: model.temperature || 0.7,
-                        max_tokens: model.maxOutputTokens,
-                        frequency_penalty: model.frequency_penalty,
-                        presence_penalty: model.presence_penalty,
-                    };
-                    break;
-                default:
-                    throw new Error(`Unsupported model provider: ${provider}`);
-            }
-
-            elizaLogger.debug("Request body:", JSON.stringify(body, null, 2));
-            const requestBody = JSON.stringify(body);
-            const requestHeaders = {
-                "Content-Type": "application/json",
-                Authorization: authHeader,
-                ...options?.headers,
-            };
-
-            elizaLogger.debug("Making request to Cloudflare with:", {
-                endpoint,
-                headers: {
-                    ...requestHeaders,
-                    Authorization: "[REDACTED]",
-                },
-                body: requestBody,
-            });
-
-            // Validate JSON before sending
-            try {
-                JSON.parse(requestBody); // Verify the JSON is valid
-            } catch {
-                elizaLogger.error("Invalid JSON body:", body);
-                throw new Error("Failed to create valid JSON request body");
-            }
-            elizaLogger.debug("Request body:", requestBody);
-            const cloudflareResponse = await fetch(endpoint, {
-                method: "POST",
-                headers: requestHeaders,
-                body: requestBody,
-            });
-
-            if (!cloudflareResponse.ok) {
-                const errorText = await cloudflareResponse.text();
-                elizaLogger.error("Cloudflare error response:", {
-                    status: cloudflareResponse.status,
-                    statusText: cloudflareResponse.statusText,
-                    error: errorText,
+            if (useOpenAISDK && this.openaiClient) {
+                // OpenRouter path using OpenAI SDK
+                const completion = await this.openaiClient.chat.completions.create({
+                    model: modelClass,
+                    messages: [
+                        {
+                            role: "system",
+                            content: context,
+                        },
+                    ],
+                    temperature: model.temperature || 0.7,
+                    max_tokens: model.maxOutputTokens,
+                    frequency_penalty: model.frequency_penalty,
+                    presence_penalty: model.presence_penalty,
                 });
-                throw new Error(`Cloudflare request failed: ${errorText}`);
+
+                responseId = `or-${completion.id}`;
+                responseJson = completion;
+            } else {
+                // Standard fetch path for Cloudflare
+                let body;
+                switch (provider) {
+                    case ModelProviderName.OPENAI:
+                        body = {
+                            model: model.name,
+                            messages: [
+                                {
+                                    role: "system",
+                                    content: context,
+                                },
+                            ],
+                            temperature: model.temperature || 0.7,
+                            max_tokens: model.maxOutputTokens,
+                            frequency_penalty: model.frequency_penalty,
+                            presence_penalty: model.presence_penalty,
+                        };
+                        break;
+                    default:
+                        throw new Error(`Unsupported model provider: ${provider}`);
+                }
+
+                elizaLogger.debug("Request body:", JSON.stringify(body, null, 2));
+                const requestBody = JSON.stringify(body);
+                const requestHeaders = {
+                    "Content-Type": "application/json",
+                    Authorization: authHeader,
+                    ...options?.headers,
+                };
+
+                elizaLogger.debug("Making request with:", {
+                    endpoint,
+                    headers: {
+                        ...requestHeaders,
+                        Authorization: "[REDACTED]",
+                    },
+                });
+
+                response = await fetch(endpoint, {
+                    method: "POST",
+                    headers: requestHeaders,
+                    body: requestBody,
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    elizaLogger.error("API error response:", {
+                        status: response.status,
+                        statusText: response.statusText,
+                        error: errorText,
+                    });
+                    throw new Error(`API request failed: ${errorText}`);
+                }
+
+                responseId = response.headers.get("cf-aig-log-id");
+                responseJson = await response.json();
             }
-
-            elizaLogger.debug("Cloudflare response:", {
-                status: cloudflareResponse.status,
-                statusText: cloudflareResponse.statusText,
-                headers: cloudflareResponse.headers,
-                type: cloudflareResponse.type,
-                url: cloudflareResponse.url,
-            });
-
-            const cloudflareLogId =
-                cloudflareResponse.headers.get("cf-aig-log-id");
-            const cloudflareResponseJson = await cloudflareResponse.json();
 
             const proof = await this.generateProof(
                 this.options.opacityProverUrl,
-                cloudflareLogId
+                responseId
             );
             elizaLogger.debug(
                 "Proof generated for text generation ID:",
-                cloudflareLogId
+                responseId
             );
 
-            // // Extract text based on provider format
-            const text = cloudflareResponseJson.choices[0].message.content;
-            const timestamp = Date.now();
             return {
-                text: text,
-                id: cloudflareLogId,
+                text: responseJson.choices[0].message.content,
+                id: responseId,
                 provider: VerifiableInferenceProvider.OPACITY,
-                timestamp: timestamp,
-                proof: proof,
+                timestamp: Date.now(),
+                proof,
             };
         } catch (error) {
             console.error("Error in Opacity generateText:", error);
