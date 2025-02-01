@@ -6,16 +6,18 @@
     "type": "module",
     "types": "dist/index.d.ts",
     "scripts": {
-        "build": "tsup src/index.ts --format esm --dts",
-        "watch": "tsc --watch",
-        "dev": "tsup src/index.ts --format esm --dts --watch"
+        "build": "tsup --config tsup.config.ts",
+        "watch": "tsup --config tsup.config.ts --watch",
+        "dev": "tsup --config tsup.config.ts --watch"
     },
     "dependencies": {
-        "@elizaos/core": "workspace:*",
         "@elizaos/client-twitter": "workspace:*",
-        "dotenv": "^16.4.5"
+        "@elizaos/core": "workspace:*",
+        "dotenv": "^16.4.5",
+        "punycode": "^2.3.1"
     },
     "devDependencies": {
+        "@types/node": "^22.13.0",
         "tsup": "^8.3.5"
     }
 }

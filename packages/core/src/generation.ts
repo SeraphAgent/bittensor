@@ -388,15 +388,21 @@ export async function generateText({
                     modelClass,
                     verifiableInferenceOptions
                 );
-            elizaLogger.log("Verifiable inference result:", result);
-            // Verify the proof
+            elizaLogger.info("Verifiable inference id:", result.id);
+            
+            // Check if result is a string or an object
+            if (typeof result === 'string') {
+                elizaLogger.warn("Result is a string, not an object");
+                return result;
+            }
+            
+            // Verify the proof if result is an object
             const isValid =
                 await runtime.verifiableInferenceAdapter.verifyProof(result);
             if (!isValid) {
                 throw new Error("Failed to verify inference proof");
             }
-
-            return `${result.text}\n\nProof ID: ${result.id}`;
+            return `${result.text}\n\n Proof ID: ${result.id}`;
         } catch (error) {
             elizaLogger.error("Error in verifiable inference:", error);
             throw error;
