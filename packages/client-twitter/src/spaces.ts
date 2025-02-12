@@ -66,12 +66,18 @@ async function speakFiller(
     fillerType: string,
     sleepAfterMs = 3000
 ): Promise<void> {
-    if (!sttTtsPlugin) return;
-    const text = await generateFiller(runtime, fillerType);
-    if (!text) return;
-
-    elizaLogger.log(`[Space] Filler (${fillerType}) => ${text}`);
-    await sttTtsPlugin.speakText(text);
+    if (!sttTtsPlugin) {
+        elizaLogger.warn("[Space] No STT/TTS plugin available for filler");
+        return;
+    }
+    try {
+        const text = await generateFiller(runtime, fillerType);
+        elizaLogger.info(`[Space] Filler (${fillerType}) => ${text}`);
+        await sttTtsPlugin.speakText(text);
+    } catch (error) {
+        elizaLogger.errror("[Space] Error in speakFiller:", error);
+        throw error;
+    }
 
     if (sleepAfterMs > 0) {
         await new Promise((res) => setTimeout(res, sleepAfterMs));
@@ -148,7 +154,7 @@ export class TwitterSpaceClient {
             typicalDurationMinutes: charSpaces.typicalDurationMinutes ?? 30,
             idleKickTimeoutMs: charSpaces.idleKickTimeoutMs ?? 5 * 60_000,
             minIntervalBetweenSpacesMinutes:
-                charSpaces.minIntervalBetweenSpacesMinutes ?? 60,
+                charSpaces.minIntervalBetweenSpacesMsinutes ?? 60,
             businessHoursOnly: charSpaces.businessHoursOnly ?? false,
             randomChance: charSpaces.randomChance ?? 0.3,
             enableIdleMonitor: charSpaces.enableIdleMonitor !== false,
@@ -161,6 +167,8 @@ export class TwitterSpaceClient {
             sttLanguage: charSpaces.sttLanguage || "en",
             speakerMaxDurationMs: charSpaces.speakerMaxDurationMs ?? 4 * 60_000,
         };
+
+        elizaLogger.info("[Space] Configured topics:", this.decisionOptions.topics);
     }
 
     /**
@@ -219,14 +227,14 @@ export class TwitterSpaceClient {
         // Random chance
         const r = Math.random();
         if (r > (this.decisionOptions.randomChance ?? 0.3)) {
-            elizaLogger.log("[Space] Random check => skip launching");
+            elizaLogger.info("[Space] Random check => skip launching");
             return false;
         }
         // Business hours
         if (this.decisionOptions.businessHoursOnly) {
             const hour = new Date().getUTCHours();
             if (hour < 9 || hour >= 17) {
-                elizaLogger.log("[Space] Out of business hours => skip");
+                elizaLogger.info("[Space] Out of business hours => skip");
                 return false;
             }
         }
@@ -242,7 +250,7 @@ export class TwitterSpaceClient {
             }
         }
 
-        elizaLogger.log("[Space] Deciding to launch a new Space...");
+        elizaLogger.info("[Space] Deciding to launch a new Space...");
         return true;
     }
 
@@ -253,6 +261,7 @@ export class TwitterSpaceClient {
         ) {
             const newTopics = await generateTopicsIfEmpty(this.client.runtime);
             this.decisionOptions.topics = newTopics;
+            elizaLogger.info("[Space] Generated new topics:", newTopics);
         }
 
         let chosenTopic = "Random Tech Chat";
@@ -305,6 +314,10 @@ export class TwitterSpaceClient {
                 elizaLogger.log("[Space] Using SttTtsPlugin");
                 const sttTts = new SttTtsPlugin();
                 this.sttTtsPlugin = sttTts;
+
+                elizaLogger.info("[Space] ElevenLabs Key:", elevenLabsKey ? "Present" : "Missing");
+                elizaLogger.info("[Space] Voice ID:", this.decisionOptions.voiceId);
+    
                 this.currentSpace.use(sttTts, {
                     runtime: this.runtime,
                     client: this.client,
@@ -338,7 +351,7 @@ export class TwitterSpaceClient {
                 "broadcasts",
                 "spaces"
             );
-            elizaLogger.log(`[Space] Space started => ${spaceUrl}`);
+            elizaLogger.info(`[Space] Space started => ${spaceUrl}`);
 
             // Greet
             await speakFiller(
