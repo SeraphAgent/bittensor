@@ -68,7 +68,7 @@ export class SttTtsPlugin implements Plugin {
     private elevenLabsApiKey?: string;
 
     private voiceId = "21m00Tcm4TlvDq8ikWAM";
-    private elevenLabsModel = "eleven_monolingual_v1";
+    private elevenLabsModel = "eleven_flash_v2";
     private chatContext: Array<{
         role: "system" | "user" | "assistant";
         content: string;
@@ -342,6 +342,11 @@ export class SttTtsPlugin implements Plugin {
      * Public method to queue a TTS request
      */
     public async speakText(text: string): Promise<void> {
+        elizaLogger.info("[SttTtsPlugin] Speaking text:", {
+            length: text.length,
+            queueLength: this.ttsQueue.length
+        });
+
         this.ttsQueue.push(text);
         if (!this.isSpeaking) {
             this.isSpeaking = true;
@@ -366,17 +371,42 @@ export class SttTtsPlugin implements Plugin {
             const { signal } = this.ttsAbortController;
 
             try {
-                const ttsAudio = await this.elevenLabsTts(text);
-                const pcm = await this.convertMp3ToPcm(ttsAudio, 48000);
+                elizaLogger.info("[SttTtsPlugin] Starting TTS process for text:", {
+                    textLength: text.length
+                });
+
+                const ttsAudio = await this.elevenLabsTts(text).catch(err => {
+                    elizaLogger.error("[SttTtsPlugin] ElevenLabs TTS failed:", err);
+                    throw err;
+                });
+
                 if (signal.aborted) {
-                    elizaLogger.log(
-                        "[SttTtsPlugin] TTS interrupted before streaming"
-                    );
+                    elizaLogger.info("[SttTtsPlugin] TTS interrupted before PCM conversion");
                     return;
                 }
-                await this.streamToJanus(pcm, 48000);
+
+                const pcm = await this.convertMp3ToPcm(ttsAudio, 48000).catch(err => {
+                    elizaLogger.error("[SttTtsPlugin] MP3 to PCM conversion failed:", err);
+                    throw err;
+                });
+    
                 if (signal.aborted) {
-                    elizaLogger.log(
+                    elizaLogger.info("[SttTtsPlugin] TTS interrupted before streaming");
+                    return;
+                }
+                
+                if (!this.janus) {
+                    elizaLogger.error("[SttTtsPlugin] Janus not initialized for streaming");
+                    throw new Error("Janus not initialized");
+                }
+
+                await this.streamToJanus(pcm, 48000).catch(err => {
+                    elizaLogger.error("[SttTtsPlugin] Janus streaming failed:", err);
+                    throw err;
+                });
+
+                if (signal.aborted) {
+                    elizaLogger.info(
                         "[SttTtsPlugin] TTS interrupted after streaming"
                     );
                     return;
@@ -609,29 +639,50 @@ export class SttTtsPlugin implements Plugin {
      */
     private async elevenLabsTts(text: string): Promise<Buffer> {
         if (!this.elevenLabsApiKey) {
+            elizaLogger.error("[SttTtsPlugin] No ElevenLabs API key provided");
             throw new Error("[SttTtsPlugin] No ElevenLabs API key");
         }
-        const url = `https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`;
-        const resp = await fetch(url, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "xi-api-key": this.elevenLabsApiKey,
-            },
-            body: JSON.stringify({
-                text,
-                model_id: this.elevenLabsModel,
-                voice_settings: { stability: 0.4, similarity_boost: 0.8 },
-            }),
+
+        elizaLogger.info("[SttTtsPlugin] TTS Request:", {
+            voiceId: this.voiceId,
+            modelId: this.elevenLabsModel,
+            textLength: text.length
         });
-        if (!resp.ok) {
-            const errText = await resp.text();
-            throw new Error(
-                `[SttTtsPlugin] ElevenLabs TTS error => ${resp.status} ${errText}`
-            );
+
+        const url = `https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`;
+        try {
+            const resp = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "xi-api-key": this.elevenLabsApiKey,
+                },
+                body: JSON.stringify({
+                    text,
+                    model_id: this.elevenLabsModel,
+                    voice_settings: { stability: 0.4, similarity_boost: 0.8 },
+                }),
+            });
+
+            if (!resp.ok) {
+                const errText = await resp.text();
+                elizaLogger.error("[SttTtsPlugin] ElevenLabs API Response:", {
+                    status: resp.status,
+                    statusText: resp.statusText,
+                    error: errText
+                });
+                throw new Error(
+                    `[SttTtsPlugin] ElevenLabs TTS error => ${resp.status} ${errText}`
+                );
+            }
+
+            const arrayBuf = await resp.arrayBuffer();
+            elizaLogger.info("[SttTtsPlugin] TTS Response size:", arrayBuf.byteLength);
+            return Buffer.from(arrayBuf);
+        } catch (error) {
+            elizaLogger.error("[SttTtsPlugin] TTS Request failed:", error);
+            throw error;
         }
-        const arrayBuf = await resp.arrayBuffer();
-        return Buffer.from(arrayBuf);
     }
 
     /**
@@ -687,24 +738,39 @@ export class SttTtsPlugin implements Plugin {
         samples: Int16Array,
         sampleRate: number
     ): Promise<void> {
+        elizaLogger.info("[SttTtsPlugin] Starting audio stream:", {
+            samplesLength: samples.length,
+            sampleRate
+        });
         // TODO: Check if better than 480 fixed
         const FRAME_SIZE = Math.floor(sampleRate * 0.01); // 10ms frames => 480 @48kHz
+        try {
+            for (
+                let offset = 0;
+                offset + FRAME_SIZE <= samples.length;
+                offset += FRAME_SIZE
+            ) {
+                if (this.ttsAbortController?.signal.aborted) {
+                    elizaLogger.info("[SttTtsPlugin] streamToJanus interrupted");
+                    return;
+                }
+                const frame = new Int16Array(FRAME_SIZE);
+                frame.set(samples.subarray(offset, offset + FRAME_SIZE));
+                
+                if (!this.janus) {
+                    elizaLogger.error("[SttTtsPlugin] Janus not initialized");
+                    throw new Error("Janus not initialized");
+                }
 
-        for (
-            let offset = 0;
-            offset + FRAME_SIZE <= samples.length;
-            offset += FRAME_SIZE
-        ) {
-            if (this.ttsAbortController?.signal.aborted) {
-                elizaLogger.log("[SttTtsPlugin] streamToJanus interrupted");
-                return;
+                this.janus.pushLocalAudio(frame, sampleRate, 1);
+
+                // Short pause so we don't overload
+                await new Promise((r) => setTimeout(r, 10));
             }
-            const frame = new Int16Array(FRAME_SIZE);
-            frame.set(samples.subarray(offset, offset + FRAME_SIZE));
-            this.janus?.pushLocalAudio(frame, sampleRate, 1);
-
-            // Short pause so we don't overload
-            await new Promise((r) => setTimeout(r, 10));
+            elizaLogger.info("[SttTtsPlugin] Audio stream complete");
+        } catch (error) {
+            elizaLogger.error("[SttTtsPlugin] Stream error:", error);
+            throw error;
         }
     }
 

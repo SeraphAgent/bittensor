@@ -43,6 +43,7 @@ class TwitterManager {
 
         // Optional Spaces logic (enabled if TWITTER_SPACES_ENABLE is true)
         if (twitterConfig.TWITTER_SPACES_ENABLE) {
+            elizaLogger.info("Starting Twitter Space");
             this.space = new TwitterSpaceClient(this.client, runtime);
         }
     }
@@ -53,7 +54,7 @@ export const TwitterClientInterface: Client = {
         const twitterConfig: TwitterConfig =
             await validateTwitterConfig(runtime);
 
-        elizaLogger.log("Twitter client started");
+        elizaLogger.info("Twitter client started");
 
         const manager = new TwitterManager(runtime, twitterConfig);
 
