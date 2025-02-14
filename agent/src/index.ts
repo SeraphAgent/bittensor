@@ -121,7 +121,7 @@ import { webSearchPlugin } from "@elizaos/plugin-web-search";
 
 // import { zxPlugin } from "@elizaos/plugin-0x";
 
-import { bittensorPlugin } from "@elizaos/plugin-bittensor";
+// import { bittensorPlugin } from "@elizaos/plugin-bittensor";
 
 
 import Database from "better-sqlite3";
@@ -912,7 +912,7 @@ export async function createAgent(
         character,
         // character.plugins are handled when clients are added
         plugins: [
-            getSecret(character, "BITMIND") ? (elizaLogger.info("Loading bittensor plugin"), bittensorPlugin) : null,
+            // getSecret(character, "BITMIND") ? (elizaLogger.info("Loading bittensor plugin"), bittensorPlugin) : null,
             // getSecret(character, "IQ_WALLET_ADDRESS") &&
             // getSecret(character, "IQSOlRPC")
             //     ? elizaCodeinPlugin

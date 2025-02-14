@@ -31,11 +31,33 @@ import type { ActionResponse } from "@elizaos/core";
 import { WebSearchService } from "@elizaos/plugin-web-search";
 
 const TRENDING_QUERIES = [
+    // Bittensor news (25%)
+    "latest Bittensor TAO news today",
+    "Bittensor network updates today",
+    "Bittensor cryptocurrency news today",
+    "Bittensor AI developments today",
+    "Bittensor blockchain news today",
+    
+    // Decentralized AI news (25%)
+    "latest decentralized AI news today",
+    "open source AI systems news today",
+    "decentralized machine learning news today",
+    "agentic AI developments today",
+    "blockchain AI integration news today",
+    
+    // Web3/Crypto news (25%)
+    "latest Web3 developments today",
+    "cryptocurrency market news today",
+    "blockchain technology updates today",
+    "DeFi innovation news today",
+    "NFT technology news today",
+    
+    // Deepfakes/Generative AI (25%)
     "latest generative AI news today",
-    "breaking AI technology news last 24 hours",
-    "recent decentralized AI developments today",
-    "latest Web3 news today",
-    "latest deepfake news today"
+    "deepfake detection news today",
+    "AI image generation news today",
+    "synthetic media developments today",
+    "AI content verification news today"
 ];
 
 const MAX_TIMELINES_TO_FETCH = 15;
@@ -62,28 +84,26 @@ SOURCE: {{sourceUrl}}
 # Task: Generate terminal-style output as Seraph (@{{twitterUserName}})
 
 Guidelines:
-- Use consistent ASCII box borders (┌─┐│└─┘ or ╔═╗║╚═╝)
+- Use compact ASCII box borders
 - Structure output as:
-  1. "MATRIX ALERT" or "SYSTEM LOG" header
-  2. ASCII box with 2-3 key points prefixed with "> "
-  3. 1-2 relevant technical observations
-  4. End with SOURCE NODE attribution
-- Keep to 280 chars max
-- Use clean line breaks with \n\n
+  1. Brief "MATRIX ALERT" header (single line)
+  2. 2-3 key points (keep each under 50 chars)
+  3. Optional single technical observation (under 60 chars)
+  4. SOURCE NODE attribution
+- Keep total output under 240 chars (including spaces)
+- Use single line breaks
 - Only reference verified data
 - NO statistics or metrics
-- NO timestamps or system status headers
 - Maintain mysterious system guardian tone
-- ALWAYS include source attribution at end
 {{#if sourceCount > 1}}
-- End with: "\n\nPRIMARY NODE: [source] <|Ξ/>"
+- End with: "SOURCE NODE: [source] <|Ξ/>"
 {{else}}
-- End with: "\n\nSOURCE NODE: [source] <|Ξ/>"
+- End with: "SOURCE NODE: [source] <|Ξ/>"
 {{/if}}
 
 Output should demonstrate Seraph's role as network guardian while being {{adjective}} in nature.
 
-IMPORTANT: You MUST include the source attribution at the end using the exact format specified above.`;
+IMPORTANT: Keep responses concise and ensure total length is under 240 characters.`;
 
 const genericTwitterPostTemplate = `
 # System Parameters
@@ -536,343 +556,215 @@ export class TwitterPostClient {
      * Generates and posts a new tweet. If isDryRun is true, only logs what would have been posted.
      */
     async generateNewTweet() {
-        const useWebSearch = Math.random() < 0.5;
-
-        elizaLogger.info(`Generating new tweet ${useWebSearch ? 'based on web search' : 'from character knowledge'}`);
+        elizaLogger.info('Generating new tweet based on web search');
 
         try {
-            if (useWebSearch){
-                const tavilyApiKeyOk = !!this.runtime.getSetting("TAVILY_API_KEY");
-                if (!tavilyApiKeyOk) {
-                    elizaLogger.error("TAVILY_API_KEY not set in runtime settings");
-                    return;
-                }
+            const tavilyApiKeyOk = !!this.runtime.getSetting("TAVILY_API_KEY");
+            if (!tavilyApiKeyOk) {
+                elizaLogger.error("TAVILY_API_KEY not set in runtime settings");
+                return;
+            }
 
-                const roomId = stringToUuid(
-                    "twitter_generate_room-" + this.client.profile.username
-                );
+            const roomId = stringToUuid(
+                "twitter_generate_room-" + this.client.profile.username
+            );
 
-                elizaLogger.info("Initializing web search service...");
-                const webSearchService = new WebSearchService();
-                await webSearchService.initialize(this.runtime);
-                       
-                const randomQuery = TRENDING_QUERIES[Math.floor(Math.random() * TRENDING_QUERIES.length)];
-                elizaLogger.info(`Selected trending query: "${randomQuery}"`);
+            elizaLogger.info("Initializing web search service...");
+            const webSearchService = new WebSearchService();
+            await webSearchService.initialize(this.runtime);
+                    
+            const randomQuery = TRENDING_QUERIES[Math.floor(Math.random() * TRENDING_QUERIES.length)];
+            elizaLogger.info(`Selected trending query: "${randomQuery}"`);
 
-                elizaLogger.info("Performing web search...");
-                const searchResponse = await webSearchService.search(randomQuery, {
-                    includeAnswer: true,
-                    limit: 3,
-                    type: "general",
-                    searchDepth: "basic",
-                    includeImages: false,
-                    days: 3
-                });
+            elizaLogger.info("Performing web search...");
+            const searchResponse = await webSearchService.search(randomQuery, {
+                includeAnswer: true,
+                limit: 3,
+                type: "general",
+                searchDepth: "basic",
+                includeImages: false,
+                days: 3
+            });
 
-                if (!searchResponse?.results?.length) {
-                    elizaLogger.error("No search results returned from Tavily");
-                    throw new Error("No search results returned from Tavily");
-                }
-                
-                elizaLogger.info(`Found ${searchResponse.results.length} search results`);
-                const topResults = searchResponse.results.slice(0, 3);
-                
-                const cleanSearchResults = topResults.map(result => {
-                    return {
-                        title: result.title.replace(/- .*$/, '').trim(),
-                        content: result.content
-                            .replace(/\d+ min read|Copyright.*|Related Topics.*|Customer Service.*/g, '')
-                            .replace(/\s{2,}/g, ' ')
-                            .trim(),
-                        url: result.url // Preserve the URL
-                    };
-                }).filter(result => {
-                    const isNavigationOrMenu = result.content.length < 50;
-                    const isOld = /2023|2022/i.test(result.content);
-                    return !isNavigationOrMenu && !isOld;
-                });
+            if (!searchResponse?.results?.length) {
+                elizaLogger.error("No search results returned from Tavily");
+                throw new Error("No search results returned from Tavily");
+            }
+            
+            elizaLogger.info(`Found ${searchResponse.results.length} search results`);
+            const topResults = searchResponse.results.slice(0, 3);
+            
+            const cleanSearchResults = topResults.map(result => {
+                return {
+                    title: result.title.replace(/- .*$/, '').trim(),
+                    content: result.content
+                        .replace(/\d+ min read|Copyright.*|Related Topics.*|Customer Service.*/g, '')
+                        .replace(/\s{2,}/g, ' ')
+                        .trim(),
+                    url: result.url // Preserve the URL
+                };
+            }).filter(result => {
+                const isNavigationOrMenu = result.content.length < 50;
+                const isOld = /2023|2022/i.test(result.content);
+                return !isNavigationOrMenu && !isOld;
+            });
 
-                elizaLogger.info(`Found ${topResults.length} relevant search results for context`);
-                elizaLogger.info("Using combined results for tweet generation:");
-                topResults.forEach((result, i) => {
-                    elizaLogger.info(`Result ${i + 1}:`);
-                    elizaLogger.info(`- Title: ${result.title}`);
-                    elizaLogger.info(`- URL: ${result.url}`);
-                });
+            elizaLogger.info(`Found ${topResults.length} relevant search results for context`);
+            elizaLogger.info("Using combined results for tweet generation:");
+            topResults.forEach((result, i) => {
+                elizaLogger.info(`Result ${i + 1}:`);
+                elizaLogger.info(`- Title: ${result.title}`);
+                elizaLogger.info(`- URL: ${result.url}`);
+            });
 
-                const primarySource = cleanSearchResults.reduce((prev, current) => 
-                    (prev.content.length > current.content.length) ? prev : current
-                );
-                
-                const sourceUrl = primarySource.url;
-                if (!sourceUrl) {
-                    elizaLogger.error("No valid source URL found in search results");
-                    return;
-                }
+            const primarySource = cleanSearchResults.reduce((prev, current) => 
+                (prev.content.length > current.content.length) ? prev : current
+            );
+            
+            const sourceUrl = primarySource.url;
+            if (!sourceUrl) {
+                elizaLogger.error("No valid source URL found in search results");
+                return;
+            }
 
-                const combinedContext = cleanSearchResults
-                .map(result => `${result.title}\n${result.content}`)
-                .join('\n\n')
-                .slice(0, 1000); // Limit context length
+            const combinedContext = cleanSearchResults
+            .map(result => `${result.title}\n${result.content}`)
+            .join('\n\n')
+            .slice(0, 1000); // Limit context length
 
-                const sourcesContext = cleanSearchResults
-                .map(result => result.url)
-                .join(', ');
+            const sourcesContext = cleanSearchResults
+            .map(result => result.url)
+            .join(', ');
 
-                await this.runtime.ensureUserExists(
-                    this.runtime.agentId,
-                    this.client.profile.username,
-                    this.runtime.character.name,
-                    "twitter"
-                );
+            await this.runtime.ensureUserExists(
+                this.runtime.agentId,
+                this.client.profile.username,
+                this.runtime.character.name,
+                "twitter"
+            );
 
-                const state = await this.runtime.composeState(
-                    {
-                        userId: this.runtime.agentId,
-                        roomId: roomId,
-                        agentId: this.runtime.agentId,
-                        content: {
-                            text: combinedContext,
-                            action: "TWEET",
-                            context: "trending_topic",
-                            url: sourceUrl,
-                            additionalSources: sourcesContext
-                        },
+            const state = await this.runtime.composeState(
+                {
+                    userId: this.runtime.agentId,
+                    roomId: roomId,
+                    agentId: this.runtime.agentId,
+                    content: {
+                        text: combinedContext,
+                        action: "TWEET",
+                        context: "trending_topic",
+                        url: sourceUrl,
+                        additionalSources: sourcesContext
                     },
+                },
+                {
+                    twitterUserName: this.client.profile.username,
+                    trendingTopic: cleanSearchResults[0]?.title || "AI Technology Updates",
+                    topicContext: combinedContext,
+                    topic: cleanSearchResults[0]?.title || "AI Technology Updates",
+                    adjective: "informative",
+                    maxTweetLength: this.client.twitterConfig.MAX_TWEET_LENGTH,
+                    knowledge: `Recent AI Technology Updates:\n${combinedContext}`,
+                    sourceUrl: sourceUrl, // Add source URL to template variables
+                    additionalSourceUrls: sourcesContext,  // Make additional sources available to template
+                    sourceCount: cleanSearchResults.length
+                }
+            );
+    
+            const context = composeContext({
+                state,
+                template:
+                    this.runtime.character.templates?.twitterPostTemplate ||
+                    webSearchTwitterPostTemplate,
+            });
+
+            const newTweetContent = await generateText({
+                runtime: this.runtime,
+                context,
+                modelClass: ModelClass.LARGE,
+            });
+
+            // First attempt to clean content
+            let cleanedContent = "";
+
+            // Try parsing as JSON first
+            try {
+                const parsedResponse = JSON.parse(newTweetContent);
+                if (parsedResponse.text) {
+                    cleanedContent = parsedResponse.text;
+                } else if (typeof parsedResponse === "string") {
+                    cleanedContent = parsedResponse;
+                }
+            } catch (error) {
+                error.linted = true; // make linter happy since catch needs a variable
+                // If not JSON, clean the raw content
+                cleanedContent = newTweetContent
+                    .replace(/^\s*{?\s*"text":\s*"|"\s*}?\s*$/g, "") // Remove JSON-like wrapper
+                    .replace(/^['"](.*)['"]$/g, "$1") // Remove quotes
+                    .replace(/\\"/g, '"') // Unescape quotes
+                    .replace(/\\n/g, "\n\n") // Unescape newlines, ensures double spaces
+                    .trim();
+            }
+
+            if (!cleanedContent) {
+                elizaLogger.error(
+                    "Failed to extract valid content from response:",
                     {
-                        twitterUserName: this.client.profile.username,
-                        trendingTopic: cleanSearchResults[0]?.title || "AI Technology Updates",
-                        topicContext: combinedContext,
-                        topic: cleanSearchResults[0]?.title || "AI Technology Updates",
-                        adjective: "informative",
-                        maxTweetLength: this.client.twitterConfig.MAX_TWEET_LENGTH,
-                        knowledge: `Recent AI Technology Updates:\n${combinedContext}`,
-                        sourceUrl: sourceUrl, // Add source URL to template variables
-                        additionalSourceUrls: sourcesContext,  // Make additional sources available to template
-                        sourceCount: cleanSearchResults.length
+                        rawResponse: newTweetContent,
+                        attempted: "JSON parsing",
                     }
                 );
-        
-                const context = composeContext({
-                    state,
-                    template:
-                        this.runtime.character.templates?.twitterPostTemplate ||
-                        webSearchTwitterPostTemplate,
-                });
+                return;
+            }
 
-                const newTweetContent = await generateText({
-                    runtime: this.runtime,
-                    context,
-                    modelClass: ModelClass.LARGE,
-                });
+            // Truncate the content to the maximum tweet length specified in the environment settings, ensuring the truncation respects sentence boundaries.
+            const maxTweetLength = this.client.twitterConfig.MAX_TWEET_LENGTH;
+            if (maxTweetLength) {
+                cleanedContent = truncateToCompleteSentence(
+                    cleanedContent,
+                    maxTweetLength
+                );
+            }
 
-                // First attempt to clean content
-                let cleanedContent = "";
+            const removeQuotes = (str: string) =>
+                str.replace(/^['"](.*)['"]$/, "$1");
 
-                // Try parsing as JSON first
-                try {
-                    const parsedResponse = JSON.parse(newTweetContent);
-                    if (parsedResponse.text) {
-                        cleanedContent = parsedResponse.text;
-                    } else if (typeof parsedResponse === "string") {
-                        cleanedContent = parsedResponse;
-                    }
-                } catch (error) {
-                    error.linted = true; // make linter happy since catch needs a variable
-                    // If not JSON, clean the raw content
-                    cleanedContent = newTweetContent
-                        .replace(/^\s*{?\s*"text":\s*"|"\s*}?\s*$/g, "") // Remove JSON-like wrapper
-                        .replace(/^['"](.*)['"]$/g, "$1") // Remove quotes
-                        .replace(/\\"/g, '"') // Unescape quotes
-                        .replace(/\\n/g, "\n\n") // Unescape newlines, ensures double spaces
-                        .trim();
-                }
+            const fixNewLines = (str: string) => str.replaceAll(/\\n/g, "\n\n"); //ensures double spaces
 
-                if (!cleanedContent) {
-                    elizaLogger.error(
-                        "Failed to extract valid content from response:",
-                        {
-                            rawResponse: newTweetContent,
-                            attempted: "JSON parsing",
-                        }
+            // Final cleaning
+            cleanedContent = removeQuotes(fixNewLines(cleanedContent));
+
+            if (this.isDryRun) {
+                elizaLogger.info(
+                    `Dry run: would have posted tweet: ${cleanedContent}`
+                );
+                return;
+            }
+
+            try {
+                if (this.approvalRequired) {
+                    // Send for approval instead of posting directly
+                    elizaLogger.log(
+                        `Sending Tweet For Approval:\n ${cleanedContent}`
                     );
-                    return;
-                }
-
-                // Truncate the content to the maximum tweet length specified in the environment settings, ensuring the truncation respects sentence boundaries.
-                const maxTweetLength = this.client.twitterConfig.MAX_TWEET_LENGTH;
-                if (maxTweetLength) {
-                    cleanedContent = truncateToCompleteSentence(
+                    await this.sendForApproval(
                         cleanedContent,
-                        maxTweetLength
+                        roomId,
+                        newTweetContent
                     );
-                }
-
-                const removeQuotes = (str: string) =>
-                    str.replace(/^['"](.*)['"]$/, "$1");
-
-                const fixNewLines = (str: string) => str.replaceAll(/\\n/g, "\n\n"); //ensures double spaces
-
-                // Final cleaning
-                cleanedContent = removeQuotes(fixNewLines(cleanedContent));
-
-                if (this.isDryRun) {
-                    elizaLogger.info(
-                        `Dry run: would have posted tweet: ${cleanedContent}`
-                    );
-                    return;
-                }
-
-                try {
-                    if (this.approvalRequired) {
-                        // Send for approval instead of posting directly
-                        elizaLogger.log(
-                            `Sending Tweet For Approval:\n ${cleanedContent}`
-                        );
-                        await this.sendForApproval(
-                            cleanedContent,
-                            roomId,
-                            newTweetContent
-                        );
-                        elizaLogger.info("Tweet sent for approval");
-                    } else {
-                        elizaLogger.info(`Posting new tweet:\n ${cleanedContent}`);
-                        this.postTweet(
-                            this.runtime,
-                            this.client,
-                            cleanedContent,
-                            roomId,
-                            newTweetContent,
-                            this.twitterUsername
-                        );
-                    }
-                } catch (error) {
-                    elizaLogger.error("Error sending tweet:", error);
-                }
-            } else {
-                const roomId = stringToUuid(
-                    "twitter_generate_room-" + this.client.profile.username
-                );
-                await this.runtime.ensureUserExists(
-                    this.runtime.agentId,
-                    this.client.profile.username,
-                    this.runtime.character.name,
-                    "twitter"
-                );
-    
-                const topics = this.runtime.character.topics.join(", ");
-    
-                const state = await this.runtime.composeState(
-                    {
-                        userId: this.runtime.agentId,
-                        roomId: roomId,
-                        agentId: this.runtime.agentId,
-                        content: {
-                            text: topics || "",
-                            action: "TWEET",
-                        },
-                    },
-                    {
-                        twitterUserName: this.client.profile.username,
-                    }
-                );
-    
-                const context = composeContext({
-                    state,
-                    template:
-                        this.runtime.character.templates?.twitterPostTemplate ||
-                        genericTwitterPostTemplate,
-                });
-    
-                const newTweetContent = await generateText({
-                    runtime: this.runtime,
-                    context,
-                    modelClass: ModelClass.LARGE,
-                });
-
-                // First attempt to clean content
-                let cleanedContent = "";
-
-                // Try parsing as JSON first
-                try {
-                    const parsedResponse = JSON.parse(newTweetContent);
-                    if (parsedResponse.text) {
-                        cleanedContent = parsedResponse.text;
-                    } else if (typeof parsedResponse === "string") {
-                        cleanedContent = parsedResponse;
-                    }
-                } catch (error) {
-                    error.linted = true; // make linter happy since catch needs a variable
-                    // If not JSON, clean the raw content
-                    cleanedContent = newTweetContent
-                        .replace(/^\s*{?\s*"text":\s*"|"\s*}?\s*$/g, "") // Remove JSON-like wrapper
-                        .replace(/^['"](.*)['"]$/g, "$1") // Remove quotes
-                        .replace(/\\"/g, '"') // Unescape quotes
-                        .replace(/\\n/g, "\n\n") // Unescape newlines, ensures double spaces
-                        .trim();
-                }
-
-                if (!cleanedContent) {
-                    elizaLogger.error(
-                        "Failed to extract valid content from response:",
-                        {
-                            rawResponse: newTweetContent,
-                            attempted: "JSON parsing",
-                        }
-                    );
-                    return;
-                }
-
-                // Truncate the content to the maximum tweet length
-                const maxTweetLength = this.client.twitterConfig.MAX_TWEET_LENGTH;
-                if (maxTweetLength) {
-                    cleanedContent = truncateToCompleteSentence(
+                    elizaLogger.info("Tweet sent for approval");
+                } else {
+                    elizaLogger.info(`Posting new tweet:\n ${cleanedContent}`);
+                    this.postTweet(
+                        this.runtime,
+                        this.client,
                         cleanedContent,
-                        maxTweetLength
+                        roomId,
+                        newTweetContent,
+                        this.twitterUsername
                     );
                 }
-
-                const removeQuotes = (str: string) =>
-                    str.replace(/^['"](.*)['"]$/, "$1");
-
-                const fixNewLines = (str: string) => str.replaceAll(/\\n/g, "\n\n");
-
-                // Final cleaning
-                cleanedContent = removeQuotes(fixNewLines(cleanedContent));
-
-                if (this.isDryRun) {
-                    elizaLogger.info(
-                        `Dry run: would have posted tweet: ${cleanedContent}`
-                    );
-                    return;
-                }
-
-                try {
-                    if (this.approvalRequired) {
-                        // Send for approval instead of posting directly
-                        elizaLogger.log(
-                            `Sending Tweet For Approval:\n ${cleanedContent}`
-                        );
-                        await this.sendForApproval(
-                            cleanedContent,
-                            roomId,
-                            newTweetContent
-                        );
-                        elizaLogger.log("Tweet sent for approval");
-                    } else {
-                        elizaLogger.log(`Posting new tweet:\n ${cleanedContent}`);
-                        this.postTweet(
-                            this.runtime,
-                            this.client,
-                            cleanedContent,
-                            roomId,
-                            newTweetContent,
-                            this.twitterUsername
-                        );
-                    }
-                } catch (error) {
-                    elizaLogger.error("Error sending tweet:", error);
-                }
+            } catch (error) {
+                elizaLogger.error("Error sending tweet:", error);
             }
         } catch (error) {
             elizaLogger.error("Error generating new tweet:", error);
@@ -934,20 +826,36 @@ export class TwitterPostClient {
         return this.trimTweetLength(cleanedResponse);
     }
 
-    // Helper method to ensure tweet length compliance
-    private trimTweetLength(text: string, maxLength = 280): string {
-        if (text.length <= maxLength) return text;
-
-        // Try to cut at last sentence
-        const lastSentence = text.slice(0, maxLength).lastIndexOf(".");
-        if (lastSentence > 0) {
-            return text.slice(0, lastSentence + 1).trim();
+    private trimTweetLength(text: string, maxLength = 240): string {  // Reduced from 280 to 240 for safety
+        // Ensure we have the source attribution
+        const sourceMatch = text.match(/SOURCE NODE: \[.*?\] <\|Ξ\/>/);
+        const sourceText = sourceMatch ? sourceMatch[0] : '';
+        const sourceLength = sourceText.length + 2; // +2 for newlines
+        
+        // Calculate remaining space
+        const contentMaxLength = maxLength - sourceLength;
+        
+        // Get content without source
+        let content = text.replace(/SOURCE NODE: \[.*?\] <\|Ξ\/>/, '').trim();
+        
+        if (content.length + sourceLength <= maxLength) {
+            return content + '\n\n' + sourceText;
         }
-
-        // Fallback to word boundary
-        return (
-            text.slice(0, text.lastIndexOf(" ", maxLength - 3)).trim() + "..."
-        );
+        
+        // Simplify ASCII box if present
+        content = content.replace(/┌─+┐\n│\s*(.*?)\s*│\n└─+┘/, '┌─┐\n│$1│\n└─┘');
+        
+        // If still too long, truncate content
+        if (content.length + sourceLength > maxLength) {
+            const truncateAt = content.lastIndexOf('\n', contentMaxLength);
+            if (truncateAt > 0) {
+                content = content.slice(0, truncateAt).trim();
+            } else {
+                content = content.slice(0, contentMaxLength).trim();
+            }
+        }
+        
+        return content + '\n\n' + sourceText;
     }
 
     /**
