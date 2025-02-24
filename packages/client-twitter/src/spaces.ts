@@ -151,12 +151,12 @@ export class TwitterSpaceClient {
         this.decisionOptions = {
             maxSpeakers: charSpaces.maxSpeakers ?? 1,
             topics: charSpaces.topics ?? [],
-            typicalDurationMinutes: charSpaces.typicalDurationMinutes ?? 30,
-            idleKickTimeoutMs: charSpaces.idleKickTimeoutMs ?? 5 * 60_000,
+            typicalDurationMinutes: charSpaces.typicalDurationMinutes ?? 5,
+            idleKickTimeoutMs: charSpaces.idleKickTimeoutMs ?? 300000,
             minIntervalBetweenSpacesMinutes:
-                charSpaces.minIntervalBetweenSpacesMsinutes ?? 60,
+                charSpaces.minIntervalBetweenSpacesMinutes ?? 240,
             businessHoursOnly: charSpaces.businessHoursOnly ?? false,
-            randomChance: charSpaces.randomChance ?? 0.3,
+            randomChance: charSpaces.randomChance ?? 1,
             enableIdleMonitor: charSpaces.enableIdleMonitor !== false,
             enableSttTts: charSpaces.enableSttTts !== false,
             enableRecording: charSpaces.enableRecording !== false,
@@ -165,7 +165,7 @@ export class TwitterSpaceClient {
                 runtime.character.settings.voice.model ||
                 "Xb7hH8MSUJpSbSDYk0k2",
             sttLanguage: charSpaces.sttLanguage || "en",
-            speakerMaxDurationMs: charSpaces.speakerMaxDurationMs ?? 4 * 60_000,
+            speakerMaxDurationMs: charSpaces.speakerMaxDurationMs ?? 480000,
         };
 
         elizaLogger.info("[Space] Configured topics:", this.decisionOptions.topics);
@@ -353,12 +353,14 @@ export class TwitterSpaceClient {
             );
             elizaLogger.info(`[Space] Space started => ${spaceUrl}`);
 
+            await this.startMonologue(config.title);
+
             // Greet
-            await speakFiller(
-                this.client.runtime,
-                this.sttTtsPlugin,
-                "WELCOME"
-            );
+            // await speakFiller(
+            //     this.client.runtime,
+            //     this.sttTtsPlugin,
+            //     "WELCOME"
+            // );
 
             // Events
             this.currentSpace.on("occupancyUpdate", (update) => {
@@ -367,15 +369,15 @@ export class TwitterSpaceClient {
                 );
             });
 
-            this.currentSpace.on(
-                "speakerRequest",
-                async (req: SpeakerRequest) => {
-                    elizaLogger.log(
-                        `[Space] Speaker request from @${req.username} (${req.userId}).`
-                    );
-                    await this.handleSpeakerRequest(req);
-                }
-            );
+            // this.currentSpace.on(
+            //     "speakerRequest",
+            //     async (req: SpeakerRequest) => {
+            //         elizaLogger.log(
+            //             `[Space] Speaker request from @${req.username} (${req.userId}).`
+            //         );
+            //         await this.handleSpeakerRequest(req);
+            //     }
+            // );
 
             this.currentSpace.on("idleTimeout", async (info) => {
                 elizaLogger.log(
@@ -403,6 +405,89 @@ export class TwitterSpaceClient {
             elizaLogger.error("[Space] Error launching Space =>", error);
             this.isSpaceRunning = false;
             throw error;
+        }
+    }
+
+    private async startMonologue(topic: string) {
+        if (!this.sttTtsPlugin) return;
+    
+        try {
+            // Generate and speak an introduction
+            await speakFiller(
+                this.client.runtime,
+                this.sttTtsPlugin,
+                "WELCOME"
+            );
+    
+            // Generate and speak content about the topic
+            const contextLong = composeContext({
+                state: { topic },
+                template: `
+    # INSTRUCTIONS:
+    You are Seraph, delivering a comprehensive monologue about {{topic}}. Generate a detailed 5-minute segment that explores multiple aspects of the topic.
+    Structure the response in 4-5 paragraphs, each focusing on a different aspect.
+    Use your mysterious, technical terminal-style voice and incorporate relevant knowledge from your character background about Bittensor, BitMind, and decentralized systems.
+    Keep the tone engaging and maintain your character's unique perspective.
+    Only return the text to be spoken, no additional formatting.
+    
+    Example structure:
+    - Technical overview of the topic
+    - Connection to decentralized systems/Bittensor
+    - Analysis of current developments
+    - Future implications and predictions
+    - Concluding insights
+    
+    ---
+    `,
+            });
+    
+            // Loop to continue speaking about the topic
+            while (this.isSpaceRunning) {
+                // Generate a longer monologue segment
+                const longMonologue = await generateText({
+                    runtime: this.client.runtime,
+                    context: contextLong,
+                    modelClass: ModelClass.SMALL,
+                });
+    
+                // Split the long monologue into paragraphs
+                const paragraphs = longMonologue.trim().split('\n\n');
+    
+                // Speak each paragraph with appropriate pauses
+                for (const paragraph of paragraphs) {
+                    if (!this.isSpaceRunning) break;
+                    
+                    await this.sttTtsPlugin.speakText(paragraph.trim());
+                    
+                    // Add a moderate pause between paragraphs
+                    await new Promise(res => setTimeout(res, 3000));
+                }
+    
+                // Add a longer pause between complete segments
+                await new Promise(res => setTimeout(res, 10000));
+    
+                // Generate a brief transition before the next segment
+                const transition = await generateText({
+                    runtime: this.client.runtime,
+                    context: composeContext({
+                        state: { topic },
+                        template: `
+    # INSTRUCTIONS:
+    Generate a brief transition sentence to maintain flow in the ongoing discussion about {{topic}}.
+    Keep it mysterious and technical, matching Seraph's style.
+    Only return the transition text.
+    
+    ---
+    `
+                    }),
+                    modelClass: ModelClass.SMALL,
+                });
+    
+                await this.sttTtsPlugin.speakText(transition.trim());
+                await new Promise(res => setTimeout(res, 3000));
+            }
+        } catch (error) {
+            elizaLogger.error("[Space] Error in monologue:", error);
         }
     }
 
